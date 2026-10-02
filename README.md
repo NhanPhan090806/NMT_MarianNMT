@@ -67,12 +67,29 @@ self-attention and masked cross-attention. T5 uses Hugging Face pretrained T5-sm
 
 All four share the same prepared data, tokenizer, greedy generation, development
 selection, EM/F1 implementation, and latency/throughput/memory measurement pipeline.
-The three scratch models default to width 128, two layers per component, five epochs,
-and learning rate 3e-4. T5 defaults to three epochs and learning rate 1e-4. Common
+The three scratch models default to width 128, two layers per component, a maximum of
+20 epochs, and learning rate 3e-4. T5 defaults to a maximum of five epochs and learning rate 1e-4. Common
 FP32 precision and effective batch size 16 are the initial settings. The notebook
 provides a separate resource pilot for every model and an optional scratch overfit
 diagnostic. Change the configurations before starting full runs if the pilots show
 the combined budget is excessive.
+
+Notebook 2 enables early stopping for all four models using **internal-development
+F1**, evaluated every 1,000 optimizer steps and at epoch end. Default patience is five
+checks without an improvement greater than 0.1 F1 points on the 0–100 scale; failures
+only count from step 5,000 onward. Each model has independent patience. Set
+`EARLY_STOPPING_PATIENCE=0` to disable it or edit the named controls before training.
+Training loss remains logged, but a low training-loss value alone does not show that
+validation QA performance has peaked. `best.pt` always retains the highest observed
+development F1, even when the improvement is smaller than the stopping threshold.
+Final validation and all benchmarks use that checkpoint after stopping. The stopping
+state, counters, and stop step are saved in `last.pt`, development history, and result
+summaries; already-stopped runs skip further training when resumed.
+
+Start fresh for the updated notebook: leave `RESTORE_FROM=None` and use an empty
+output directory. To resume these new runs later, keep the complete checkpoint
+folders, identical settings, and the same source commit. The shared trainer's default
+keeps early stopping disabled, so notebook 1's recipe is unchanged.
 
 Artifacts default to `/kaggle/working/qa_baselines/`, with checkpoint subfolders
 `rnn_rnn/seed_42/`, `lstm_lstm/seed_42/`, `attn_attn/seed_42/`, and `t5_small/seed_42/`.
@@ -230,5 +247,6 @@ execution still require running the notebooks on Kaggle.
 
 The generator writes notebooks at the repository root. Its one-time notebook-2
 migration preserves repository URL/ref and data controls while replacing the old
-T5-only experiment cells with the new scope. Subsequent builds preserve experiment
-controls and refresh only the shared installation section.
+T5-only experiment cells with the new scope. Its stopping upgrade refreshes the
+training cells to add stopping and the requested 20/5 epoch limits. Subsequent builds
+preserve experiment controls and refresh only the shared installation section.

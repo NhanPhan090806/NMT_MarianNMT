@@ -93,6 +93,7 @@ def run_experiment(bundle, model_config, train_config, output_root, device="cuda
                "validation": validation, "training_seconds": state["training_seconds"],
                "selected_checkpoint_training_seconds": selected_state["training_seconds"],
                "optimizer_steps": state["global_step"], "examples_seen": state["examples_seen"],
+               "early_stopping": state["early_stopping"],
                "training_peak_memory": state["training_peak_memory"], "selected_step": selected_state["global_step"],
                "best_development_f1": selected_state["best_f1"], "precision": train_config.precision,
                "benchmark": timings, **parameter_counts(model)}
@@ -129,6 +130,9 @@ def collect_results(output_root, variants=None):
                      "parameters": summary["parameters"], "precision": summary["precision"],
                      "epochs": summary.get("train_config", {}).get("epochs"),
                      "learning_rate": summary.get("train_config", {}).get("learning_rate"),
+                     "stopped_early": summary.get("early_stopping", {}).get("stopped", False),
+                     "optimizer_steps": summary["optimizer_steps"],
+                     "selected_step": summary["selected_step"],
                      "data_fingerprint": summary["data_fingerprint"]})
     table = pd.DataFrame(rows)
     if rows:

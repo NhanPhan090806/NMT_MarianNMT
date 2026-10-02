@@ -44,6 +44,10 @@ def load_checkpoint(path):
     return torch.load(path, map_location="cpu", weights_only=False)
 
 
+def new_stopping_state(best_f1=-1.0):
+    return {"best_f1": best_f1, "checks_without_improvement": 0, "stopped": False, "stop_step": None}
+
+
 class Trainer:
     def __init__(self, model, bundle, collator, config, checkpoint_dir, device, source_revision=None):
         self.model, self.bundle, self.collator, self.config = model, bundle, collator, config
@@ -63,6 +67,7 @@ class Trainer:
         self.scaler = torch.amp.GradScaler("cuda", enabled=config.precision == "fp16")
         self.state = {"epoch": 0, "next_batch": 0, "global_step": 0, "best_f1": -1.0,
                       "history": [], "training_log": [], "examples_seen": 0, "training_seconds": 0.0,
+                      "early_stopping": new_stopping_state(),
                       "training_peak_memory": {"allocated_mib": 0.0, "reserved_mib": 0.0}}
         self.contract = {"model": asdict(model.config), "train": asdict(config),
                          "source_revision": source_revision,
@@ -88,6 +93,7 @@ class Trainer:
         self.scheduler.load_state_dict(checkpoint["scheduler"])
         self.scaler.load_state_dict(checkpoint["scaler"])
         self.state = checkpoint["state"]
+        self.state.setdefault("early_stopping", new_stopping_state(self.state["best_f1"]))
         restore_rng(checkpoint["rng"])
         print(f"Resumed step {self.state['global_step']}; epoch {self.state['epoch'] + 1}, "
               f"next batch {self.state['next_batch']}.")
@@ -107,6 +113,12 @@ class Trainer:
         self.state["history"].append(metrics)
         if metrics["f1"] > self.state["best_f1"]:
             self.state["best_f1"] = metrics["f1"]
+            improved_checkpoint = True
+        else:
+            improved_checkpoint = False
+        self.update_early_stopping(metrics["f1"])
+        metrics["early_stopping"] = self.state["early_stopping"].copy()
+        if improved_checkpoint:
             self.save("best.pt")
         self.save()
         write_json(self.checkpoint_dir / "history.json", self.state["history"])
@@ -114,13 +126,44 @@ class Trainer:
         self.model.train()
         reset_memory(self.device)
 
+    def update_early_stopping(self, f1):
+        config, stopping = self.config, self.state["early_stopping"]
+        if not math.isfinite(f1):
+            raise FloatingPointError("Development F1 is nonfinite; cannot select a checkpoint or stop training.")
+        if not config.early_stopping_patience:
+            return
+        if f1 > stopping["best_f1"] + config.early_stopping_min_delta:
+            stopping["best_f1"], stopping["checks_without_improvement"] = f1, 0
+        elif self.state["global_step"] >= config.early_stopping_min_steps:
+            stopping["checks_without_improvement"] += 1
+        if self.state["global_step"] < config.early_stopping_min_steps:
+            stopping["checks_without_improvement"] = 0
+        if stopping["checks_without_improvement"] >= config.early_stopping_patience:
+            stopping["stopped"], stopping["stop_step"] = True, self.state["global_step"]
+            print(f"Early stopping at step {self.state['global_step']}: development F1 has not improved by "
+                  f"more than {config.early_stopping_min_delta:g} points for "
+                  f"{config.early_stopping_patience} evaluations. Best checkpoint F1={self.state['best_f1']:.2f}.")
+
     def fit(self):
         config = self.config
         if not len(self.bundle.train):
             raise ValueError("Training dataset is empty.")
+        if self.state["early_stopping"]["stopped"]:
+            print(f"Run already early-stopped at step {self.state['early_stopping']['stop_step']}; training skipped.")
+            self.save()
+            return self.state.copy()
         self.model.train()
         self.optimizer.zero_grad(set_to_none=True)
         reset_memory(self.device)
+        # Step snapshots are saved before development evaluation. If interrupted
+        # there, complete the due check before another optimizer update so stopping
+        # patience and checkpoint selection follow the uninterrupted run.
+        step = self.state["global_step"]
+        if step and config.eval_every_steps and step % config.eval_every_steps == 0 and (
+                not self.state["history"] or self.state["history"][-1]["step"] != step):
+            self.development_evaluation()
+            if self.state["early_stopping"]["stopped"]:
+                return self.state.copy()
         for epoch in range(self.state["epoch"], config.epochs):
             indices = list(range(len(self.bundle.train)))
             random.Random(config.sample_order_seed + epoch).shuffle(indices)
@@ -131,6 +174,8 @@ class Trainer:
             if start_batch == len(batches):
                 if not self.state["history"] or self.state["history"][-1]["step"] != self.state["global_step"]:
                     self.development_evaluation()
+                if self.state["early_stopping"]["stopped"]:
+                    return self.state.copy()
                 self.state["epoch"], self.state["next_batch"] = epoch + 1, 0
                 self.save()
                 continue
@@ -196,6 +241,8 @@ class Trainer:
                             obsolete.unlink()
                 if config.eval_every_steps and step % config.eval_every_steps == 0:
                     self.development_evaluation()
+                    if self.state["early_stopping"]["stopped"]:
+                        return self.state.copy()
                 window_tokens, window_examples, window_loss = 0, 0, 0.0
                 synchronize(self.device)
                 window_start = time.perf_counter()
@@ -203,6 +250,8 @@ class Trainer:
                 # Save the final optimizer boundary before potentially long evaluation.
                 self.save()
                 self.development_evaluation()
+            if self.state["early_stopping"]["stopped"]:
+                return self.state.copy()
             self.state["epoch"], self.state["next_batch"] = epoch + 1, 0
             self.save()
         self.capture_training_memory()

@@ -1,6 +1,7 @@
 """Small, serializable configuration objects; notebooks only edit these."""
 
 from dataclasses import asdict, dataclass
+import math
 from typing import Literal
 
 VARIANTS = ("attn_attn", "mamba_attn", "attn_mamba", "mamba_mamba")
@@ -74,6 +75,9 @@ class TrainConfig:
     keep_step_checkpoints: int = 2
     development_limit: int | None = None  # None evaluates the whole eligible dev split
     log_every_steps: int = 25
+    early_stopping_patience: int = 0  # 0 disables; counts development evaluations
+    early_stopping_min_delta: float = 0.0  # absolute F1 points on the 0..100 scale
+    early_stopping_min_steps: int = 0  # do not count failures before this optimizer step
 
     def __post_init__(self):
         if min(self.epochs, self.micro_batch_size, self.accumulation_steps,
@@ -87,6 +91,10 @@ class TrainConfig:
             raise ValueError("Checkpoint/evaluation intervals cannot be negative.")
         if self.development_limit is not None and self.development_limit < 1:
             raise ValueError("development_limit must be positive or None.")
+        if min(self.early_stopping_patience, self.early_stopping_min_steps) < 0:
+            raise ValueError("Early-stopping patience and minimum steps cannot be negative.")
+        if not math.isfinite(self.early_stopping_min_delta) or self.early_stopping_min_delta < 0:
+            raise ValueError("Early-stopping minimum F1 improvement must be finite and nonnegative.")
 
     def to_dict(self):
         return asdict(self)

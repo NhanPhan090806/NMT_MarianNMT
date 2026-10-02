@@ -97,6 +97,10 @@ def test_baseline_notebook_runs_all_four_variants_without_mamba(tiny_bundle, tmp
                  "display": lambda *args: None}
     exec(notebook.cells[7].source, namespace)
     assert tuple(namespace["MODEL_VARIANTS"]) == BASELINE_VARIANTS
+    assert namespace["SCRATCH_TRAIN_CONFIG"].epochs == 20
+    assert namespace["T5_TRAIN_CONFIG"].epochs == 5
+    assert all(config.early_stopping_patience == 5 for config in namespace["TRAIN_CONFIGS"].values())
+    assert all(config.eval_every_steps == 1000 for config in namespace["TRAIN_CONFIGS"].values())
     for variant in BASELINE_VARIANTS:
         namespace["MODEL_CONFIGS"][variant] = replace(namespace["MODEL_CONFIGS"][variant],
             d_model=16, encoder_layers=1, decoder_layers=1, heads=2, feedforward_dim=32, dropout=0)

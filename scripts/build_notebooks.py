@@ -363,11 +363,19 @@ def build_baselines():
         PRECISION = "fp32"  # keep common; change only after every model passes its probe
         SCRATCH_MODEL_CONFIG = ModelConfig(d_model=128, encoder_layers=2, decoder_layers=2,
                                            heads=4, feedforward_dim=512, dropout=0.1)
-        SCRATCH_TRAIN_CONFIG = TrainConfig(epochs=5, micro_batch_size=4, accumulation_steps=4,
+        EARLY_STOPPING_PATIENCE = 5  # development checks, not epochs
+        EARLY_STOPPING_MIN_DELTA = 0.1  # absolute F1 points; scores run from 0 to 100
+        EARLY_STOPPING_MIN_STEPS = 5000  # let scratch models begin learning before counting failures
+        EVAL_EVERY_STEPS = 1000  # also evaluates at epoch end; optimizer steps, not microbatches
+        SCRATCH_TRAIN_CONFIG = TrainConfig(epochs=20, micro_batch_size=4, accumulation_steps=4,
                                            eval_batch_size=8, learning_rate=3e-4, precision=PRECISION,
-                                           save_every_steps=250, development_limit=None)
+                                           save_every_steps=250, development_limit=None,
+                                           eval_every_steps=EVAL_EVERY_STEPS,
+                                           early_stopping_patience=EARLY_STOPPING_PATIENCE,
+                                           early_stopping_min_delta=EARLY_STOPPING_MIN_DELTA,
+                                           early_stopping_min_steps=EARLY_STOPPING_MIN_STEPS)
         T5_MODEL_CONFIG = ModelConfig(variant="t5_small", t5_name="google-t5/t5-small")
-        T5_TRAIN_CONFIG = replace(SCRATCH_TRAIN_CONFIG, epochs=3, learning_rate=1e-4)
+        T5_TRAIN_CONFIG = replace(SCRATCH_TRAIN_CONFIG, epochs=5, learning_rate=1e-4)
         MODEL_CONFIGS = {variant: T5_MODEL_CONFIG if variant == "t5_small" else
                          replace(SCRATCH_MODEL_CONFIG, variant=variant) for variant in MODEL_VARIANTS}
         TRAIN_CONFIGS = {variant: T5_TRAIN_CONFIG if variant == "t5_small" else
@@ -431,6 +439,19 @@ def build_baselines():
 
         The output root defaults to `/kaggle/working/qa_baselines/` so these runs have
         their own artifacts. Save the notebook outputs to resume a later session.
+
+        Scratch runs have a maximum of 20 epochs; T5 has a maximum of 5. Development
+        F1 is checked every 1,000 optimizer steps and at epoch end. After step 5,000,
+        five checks without an improvement greater than 0.1 F1 points stop that
+        model, then the loop moves to the next model. Training loss is still logged,
+        but it is not the stopping signal. The highest observed development F1
+        still selects `best.pt`, including improvements smaller than the threshold.
+        Official validation is never used for stopping. Patience survives resumption;
+        resuming an already-stopped run skips training and evaluates its selected model.
+
+        Start fresh for these updated runs. Leave `RESTORE_FROM=None` and use an
+        empty output root. Later resumptions of these runs require the complete
+        checkpoint folders, identical configuration, and the same source revision.
         """),
         code("""
         from qa_assignment.workflow import run_experiment, archive_outputs
@@ -478,15 +499,20 @@ def main():
             else:
                 # On subsequent builds preserve repository, data, and experiment
                 # controls; refresh only the shared installation section.
+                refresh = {2, 3}
+                if name.startswith("02_") and existing.metadata.get("qa_assignment", {}).get("version", 0) < 3:
+                    # The stopping upgrade adds the requested controls and 20/5
+                    # epoch limits, while retaining clone/data/other cells.
+                    refresh.update((7, 12, 13))
                 for index in range(len(cells)):
-                    if index not in (2, 3):
+                    if index not in refresh:
                         notebook.cells[index] = existing.cells[index]
                     else:
                         notebook.cells[index].id = existing.cells[index].id
         notebook.metadata = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
                              "language_info": {"name": "python", "version": "3.11"}}
         if name.startswith("02_"):
-            notebook.metadata["qa_assignment"] = {"workflow": "seq2seq_baselines", "version": 1}
+            notebook.metadata["qa_assignment"] = {"workflow": "seq2seq_baselines", "version": 3}
         nbf.validate(notebook)
         nbf.write(notebook, destination)
         print(destination.relative_to(ROOT))

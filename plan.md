@@ -948,8 +948,13 @@ Notebook 2 uses Kaggle's installed PyTorch and pinned Transformers/tokenizer pac
 it invokes no Mamba/causal-conv1d compilation. Artifacts live under
 `/kaggle/working/qa_baselines/`, with separate per-variant/seed checkpoint and result
 folders. Each model runs a resource/compatibility pilot before sequential full
-training. Scratch defaults are five epochs at 3e-4; T5 defaults are three epochs at
-1e-4. Use the measured pilot times to choose a feasible combined budget before long
+training. Scratch limits are now twenty epochs at 3e-4; T5 has a five-epoch limit at
+1e-4. All four models use development-F1 early stopping: evaluate every 1,000 optimizer
+steps and at epoch end, with five unsuccessful checks and a 0.1-point minimum F1
+improvement. Failure counting begins at step 5,000. Retain the highest-F1 checkpoint
+independently of the minimum stopping improvement; never use official validation to
+make stopping decisions. Persist each model's patience and stop decision in checkpoints.
+Use the measured pilot times to choose a feasible combined budget before long
 runs. Full training remains subject to Kaggle session and GPU limits.
 
 The revised question is: **Under the declared shared QA data and measured training
