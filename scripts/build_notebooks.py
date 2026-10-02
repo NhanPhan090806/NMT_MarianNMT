@@ -64,6 +64,8 @@ def common_cells(title, description):
 
         Run setup before importing project modules. These requirements pin the Hugging
         Face interface used here and preserve Kaggle's preinstalled CUDA-enabled PyTorch.
+        Setup also adds the cloned `src/` directory to this running kernel's import path;
+        a subprocess editable install alone cannot refresh an already-started kernel.
         If you previously imported Transformers in this session, restart the session
         after installing and rerun from the top. A successful import is followed by an
         actual forward/backward and generation probe before training.
@@ -73,6 +75,22 @@ def common_cells(title, description):
                         str(REPO_ROOT / "requirements-kaggle.txt")], check=True)
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps",
                         "-e", str(REPO_ROOT)], check=True)
+
+        # Editable-install .pth files are read at interpreter startup. This kernel
+        # predates the pip subprocess, so explicitly expose the cloned sources now.
+        import importlib
+
+        SOURCE_ROOT = (REPO_ROOT / "src").resolve()
+        if not (SOURCE_ROOT / "qa_assignment" / "__init__.py").is_file():
+            raise FileNotFoundError(f"Missing qa_assignment sources under {SOURCE_ROOT}; check SOURCE_SUBDIR.")
+        if str(SOURCE_ROOT) not in sys.path:
+            sys.path.insert(0, str(SOURCE_ROOT))
+        importlib.invalidate_caches()
+
+        import qa_assignment
+        if Path(qa_assignment.__file__).resolve().parent != SOURCE_ROOT / "qa_assignment":
+            raise RuntimeError("qa_assignment was loaded from another checkout. Restart the session and rerun setup.")
+        print("Loaded helpers:", qa_assignment.__file__)
 
         import torch
         from qa_assignment.utils import environment_info
@@ -359,16 +377,27 @@ def build_t5():
 
 
 def main():
-    directory = ROOT / "notebooks"
-    directory.mkdir(exist_ok=True)
+    directory = ROOT
     for name, cells in (("01_attention_mamba_kaggle.ipynb", build_attention_mamba()),
                         ("02_t5_transfer_learning_kaggle.ipynb", build_t5())):
         notebook = nbf.v4.new_notebook(cells=cells)
+        destination = directory / name
+        if destination.exists():
+            existing = nbf.read(destination, as_version=4)
+            # Preserve notebook controls the user edited: repo URL/ref, training
+            # configuration, etc. Update only the shared installation section.
+            if len(existing.cells) != len(cells):
+                raise ValueError(f"Cell layout changed in {name}; patch it manually to preserve edits.")
+            for index, new_cell in enumerate(cells):
+                if index not in (2, 3):
+                    notebook.cells[index] = existing.cells[index]
+                else:
+                    notebook.cells[index].id = existing.cells[index].id
         notebook.metadata = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
                              "language_info": {"name": "python", "version": "3.11"}}
         nbf.validate(notebook)
-        nbf.write(notebook, directory / name)
-        print((directory / name).relative_to(ROOT))
+        nbf.write(notebook, destination)
+        print(destination.relative_to(ROOT))
 
 
 if __name__ == "__main__":

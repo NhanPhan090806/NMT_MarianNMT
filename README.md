@@ -3,8 +3,8 @@
 Python files contain data preparation, model definitions, training, checkpointing,
 evaluation, and profiling. Two Kaggle notebooks provide the interfaces:
 
-- `notebooks/01_attention_mamba_kaggle.ipynb`: all four scratch encoder/decoder variants.
-- `notebooks/02_t5_transfer_learning_kaggle.ipynb`: pretrained T5-small fine-tuning.
+- `01_attention_mamba_kaggle.ipynb`: all four scratch encoder/decoder variants.
+- `02_t5_transfer_learning_kaggle.ipynb`: pretrained T5-small fine-tuning.
 
 The original `train_market1501_kaggle.ipynb` remains unchanged as your sample.
 `plan.md` describes the experimental design and limitations.
@@ -62,6 +62,13 @@ preinstalled CUDA-enabled PyTorch rather than replacing it. The Mamba setup help
 installs **mamba-ssm 2.2.6.post3** and **causal-conv1d 1.5.3.post1** with build isolation
 disabled and a bounded compiler job count. These are release/API pins, not a claim
 that every Kaggle runtime has a matching prebuilt binary.
+
+Both setup cells explicitly put the cloned `src/` directory on the running kernel's
+import path and print the loaded helper location. An editable installation made by a
+pip subprocess writes import-path configuration for interpreter startup; it does not
+refresh the already-running notebook kernel. This fixes the logged
+`ModuleNotFoundError: No module named 'qa_assignment'` without restarting midway through
+a Kaggle batch run. See [Python's site documentation](https://docs.python.org/3/library/site.html).
 
 The Mamba notebook requires the real selective-scan CUDA extension, optimized causal
 convolution, and Triton recurrent update. It checks module loading and then executes
@@ -183,3 +190,7 @@ on a Linux CUDA environment with installed extensions.
 The notebook generator is optional; both notebooks are already committed as plain
 `.ipynb` files with no execution outputs. Full SQuAD training and real Mamba kernel
 execution still require running the notebooks on Kaggle.
+
+The generator writes notebooks at the repository root. When updating existing
+notebooks it preserves repository URL/ref and experiment-control cells, refreshing
+only the shared installation section.

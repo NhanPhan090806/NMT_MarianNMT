@@ -901,8 +901,8 @@ The objective is to understand the **quality–efficiency trade-off between atte
 
 The chosen execution platform is now **Kaggle**, as requested. The Windows environment in Section 19 remains the local editing/testing environment; WSL setup is not part of the current implementation. Kaggle's notebook interpreter is used for notebook execution. No local environment upgrade or cloud purchase is required by this workflow.
 
-* `notebooks/01_attention_mamba_kaggle.ipynb` clones the GitHub source and runs all four controlled variants by default. Selecting only Attn-Attn and Mamba-Attn gives the core scope.
-* `notebooks/02_t5_transfer_learning_kaggle.ipynb` clones the same source and fine-tunes T5-small as a separate reference, without installing Mamba.
+* `01_attention_mamba_kaggle.ipynb` clones the GitHub source and runs all four controlled variants by default. Selecting only Attn-Attn and Mamba-Attn gives the core scope.
+* `02_t5_transfer_learning_kaggle.ipynb` clones the same source and fine-tunes T5-small as a separate reference, without installing Mamba.
 * `REPO_URL` is intentionally an empty string for the user to fill in after pushing. Use the same Git commit and data configuration in both notebooks.
 * Python helpers live in `src/qa_assignment/`; long model, data, training, evaluation, and artifact logic stays out of notebook cells.
 * Each variant and seed writes separate `checkpoints/<variant>/seed_<seed>/` and `results/<variant>/seed_<seed>/` folders under `/kaggle/working/qa_assignment/`.
