@@ -89,7 +89,10 @@ summaries; already-stopped runs skip further training when resumed.
 Start fresh for the updated notebook: leave `RESTORE_FROM=None` and use an empty
 output directory. To resume these new runs later, keep the complete checkpoint
 folders, identical settings, and the same source commit. The shared trainer's default
-keeps early stopping disabled, so notebook 1's recipe is unchanged.
+keeps early stopping disabled, while both notebook interfaces enable the declared
+policy. Notebook 1 now uses the same early-stopping controls for all four
+attention/Mamba variants and a maximum of 20 epochs, with independent patience per
+variant/seed. Its artifacts remain under `/kaggle/working/qa_assignment/`.
 
 Artifacts default to `/kaggle/working/qa_baselines/`, with checkpoint subfolders
 `rnn_rnn/seed_42/`, `lstm_lstm/seed_42/`, `attn_attn/seed_42/`, and `t5_small/seed_42/`.
@@ -248,5 +251,6 @@ execution still require running the notebooks on Kaggle.
 The generator writes notebooks at the repository root. Its one-time notebook-2
 migration preserves repository URL/ref and data controls while replacing the old
 T5-only experiment cells with the new scope. Its stopping upgrade refreshes the
-training cells to add stopping and the requested 20/5 epoch limits. Subsequent builds
+training cells to add stopping and the requested 20/5 epoch limits. Notebook 1 has
+its own one-time stopping-control upgrade. Subsequent builds
 preserve experiment controls and refresh only the shared installation section.

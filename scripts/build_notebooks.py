@@ -243,6 +243,13 @@ def build_attention_mamba():
         `MODEL_VARIANTS=['attn_attn', 'mamba_attn']` for the core scope. Use the same
         precision for all variants. FP32 is the initial compatibility setting; FP16
         needs a successful probe. Multiple seeds multiply training cost.
+
+        All variants use independent development-F1 early stopping, with the same
+        policy as notebook 2. Evaluate every 1,000 optimizer steps and at epoch end.
+        From step 5,000, five checks without an improvement greater than 0.1 F1
+        points stop that run. The maximum is 20 epochs. The highest-F1 `best.pt`
+        supplies final evaluation and benchmarking; official validation never
+        decides stopping. Set `EARLY_STOPPING_PATIENCE=0` to disable stopping.
         """),
         code("""
         from dataclasses import replace
@@ -252,9 +259,17 @@ def build_attention_mamba():
         SEEDS = [42]  # extend to [42, 43, 44] if your budget permits
         MODEL_CONFIG = ModelConfig(d_model=128, encoder_layers=2, decoder_layers=2,
                                    heads=4, feedforward_dim=512, dropout=0.1)
-        TRAIN_CONFIG = TrainConfig(epochs=5, micro_batch_size=4, accumulation_steps=4,
+        EARLY_STOPPING_PATIENCE = 5  # development checks, not epochs
+        EARLY_STOPPING_MIN_DELTA = 0.1  # absolute F1 points on the 0..100 scale
+        EARLY_STOPPING_MIN_STEPS = 5000
+        EVAL_EVERY_STEPS = 1000  # optimizer steps; also evaluate at epoch end
+        TRAIN_CONFIG = TrainConfig(epochs=20, micro_batch_size=4, accumulation_steps=4,
                                    eval_batch_size=8, learning_rate=3e-4, precision="fp32",
-                                   save_every_steps=250, development_limit=None)
+                                   save_every_steps=250, development_limit=None,
+                                   eval_every_steps=EVAL_EVERY_STEPS,
+                                   early_stopping_patience=EARLY_STOPPING_PATIENCE,
+                                   early_stopping_min_delta=EARLY_STOPPING_MIN_DELTA,
+                                   early_stopping_min_steps=EARLY_STOPPING_MIN_STEPS)
         BENCHMARK_CONFIG = BenchmarkConfig(examples=200, repeats=3,
                                            throughput_batch_size=4, fixed_output_tokens=32)
         print("Effective batch:", TRAIN_CONFIG.micro_batch_size * TRAIN_CONFIG.accumulation_steps)
@@ -306,6 +321,11 @@ def build_attention_mamba():
         Existing matching runs resume automatically; optimizer, scheduler, scaler,
         random state, and within-epoch cursor are restored. Final validation runs only
         after training and checkpoint selection finish.
+
+        Start fresh for the updated stopping policy: leave `RESTORE_FROM=None` and
+        use an empty output root. Stopping counters and decisions are checkpointed.
+        Later matching resumes retain patience; already-stopped runs skip training,
+        evaluate the best checkpoint, and let the loop continue to the next variant.
         """),
         code("""
         from qa_assignment.workflow import run_experiment, archive_outputs
@@ -504,6 +524,8 @@ def main():
                     # The stopping upgrade adds the requested controls and 20/5
                     # epoch limits, while retaining clone/data/other cells.
                     refresh.update((7, 12, 13))
+                if name.startswith("01_") and existing.metadata.get("qa_assignment", {}).get("version", 0) < 1:
+                    refresh.update((8, 9, 14))
                 for index in range(len(cells)):
                     if index not in refresh:
                         notebook.cells[index] = existing.cells[index]
@@ -513,6 +535,8 @@ def main():
                              "language_info": {"name": "python", "version": "3.11"}}
         if name.startswith("02_"):
             notebook.metadata["qa_assignment"] = {"workflow": "seq2seq_baselines", "version": 3}
+        else:
+            notebook.metadata["qa_assignment"] = {"workflow": "attention_mamba", "version": 1}
         nbf.validate(notebook)
         nbf.write(notebook, destination)
         print(destination.relative_to(ROOT))

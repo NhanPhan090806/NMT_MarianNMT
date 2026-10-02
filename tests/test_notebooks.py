@@ -24,6 +24,32 @@ def test_two_kaggle_notebooks_are_valid_and_have_repo_variables():
         assert 'resume="auto"' in combined
 
 
+def test_attention_mamba_notebook_passes_stopping_policy_to_every_run(tmp_path, monkeypatch):
+    from qa_assignment import workflow
+    from qa_assignment.config import VARIANTS
+
+    root = Path(__file__).resolve().parents[1]
+    notebook = nbformat.read(root / "01_attention_mamba_kaggle.ipynb", as_version=4)
+    namespace = {"bundle": object(), "OUTPUT_ROOT": tmp_path / "outputs", "DEVICE": "cuda:0",
+                 "REPO_ROOT": root}
+    exec(notebook.cells[9].source, namespace)
+    calls = []
+    def completed_run(bundle, model_config, train_config, output_root, **kwargs):
+        assert train_config.epochs == 20
+        assert train_config.eval_every_steps == 1000
+        assert train_config.early_stopping_patience == 5
+        assert train_config.early_stopping_min_delta == 0.1
+        assert train_config.early_stopping_min_steps == 5000
+        assert kwargs["resume"] == "auto"
+        calls.append((model_config.variant, train_config.seed))
+        return {"variant": model_config.variant, "early_stopping": {"stopped": True}}
+    monkeypatch.setattr(workflow, "run_experiment", completed_run)
+    # Exercise the actual notebook loop; a stopped run must let subsequent runs proceed.
+    exec(notebook.cells[15].source, namespace)
+    assert calls == [(variant, seed) for variant in VARIANTS for seed in namespace["SEEDS"]]
+    assert len(namespace["summaries"]) == len(calls)
+
+
 def test_setup_exposes_sources_in_an_already_running_interpreter(tmp_path):
     """Reproduce the logged failure without installing anything into the real venv."""
     root = Path(__file__).resolve().parents[1]

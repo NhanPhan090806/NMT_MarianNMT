@@ -908,7 +908,7 @@ The chosen execution platform is now **Kaggle**, as requested. The Windows envir
 * Each variant and seed writes separate `checkpoints/<variant>/seed_<seed>/` and `results/<variant>/seed_<seed>/` folders under `/kaggle/working/qa_assignment/`.
 * Checkpoints contain model/optimizer/scheduler/scaler/RNG state and an optimizer-boundary training cursor. `last.pt` resumes training; `best.pt` preserves internal-development selection. Saved outputs must be attached/copied into a later Kaggle session to resume across sessions.
 * Runtime probes check real Mamba CUDA kernels, finite forward/backward operations, and cached/uncached decoder agreement. Successful notebook generation or local attention/T5 tests do not establish Kaggle Mamba compatibility.
-* Main scratch training defaults to five epochs; the T5 reference defaults to three epochs with its separately declared learning rate. Shared pilot configuration must be adjusted before long runs when needed.
+* Both notebooks now enable development-F1 early stopping: evaluate every 1,000 optimizer steps and at epoch end; patience five checks, minimum improvement 0.1 F1 points, failure counting from step 5,000. Scratch models have a maximum of 20 epochs, and T5 has a maximum of five. Each variant/seed retains its own stopping state and highest-F1 checkpoint. Shared pilot configuration must be adjusted before long runs when needed.
 * See `README.md` for setup, checkpoint layout, measured timing scope, and compatibility troubleshooting.
 
 ---
