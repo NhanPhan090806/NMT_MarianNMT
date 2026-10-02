@@ -1,4 +1,4 @@
-"""Controlled seq2seq models: common shells, cross-attention, and real Mamba-1."""
+"""Seq2seq QA using built-in recurrent layers, attention, T5, and optional Mamba."""
 
 from dataclasses import dataclass
 import math
@@ -138,6 +138,96 @@ class EncodedMemory:
     hidden: torch.Tensor
     mask: torch.Tensor
     projected: list | None = None
+    recurrent_state: torch.Tensor | tuple | None = None
+
+
+class RecurrentQA(nn.Module):
+    """Plain RNN/LSTM seq2seq: the final encoder state initializes the decoder.
+
+    Packed input sequences prevent right padding from replacing the final real
+    state. All recurrence is provided by torch.nn, including incremental decoding.
+    These baselines do not attend back to encoder token representations.
+    """
+
+    def __init__(self, config, vocab_size, pad_id, eos_id, input_cap, output_cap):
+        super().__init__()
+        if config.variant not in ("rnn_rnn", "lstm_lstm"):
+            raise ValueError("RecurrentQA requires rnn_rnn or lstm_lstm.")
+        self.config, self.pad_id, self.eos_id = config, pad_id, eos_id
+        self.start_id = pad_id
+        self.input_cap, self.output_cap = input_cap, output_cap
+        self.is_lstm = config.variant == "lstm_lstm"
+        recurrent = nn.LSTM if self.is_lstm else nn.RNN
+        self.embedding = nn.Embedding(vocab_size, config.d_model)
+        self.dropout = nn.Dropout(config.dropout)
+        self.encoder = recurrent(config.d_model, config.d_model, config.encoder_layers,
+                                 batch_first=True,
+                                 dropout=config.dropout if config.encoder_layers > 1 else 0.0)
+        self.decoder = recurrent(config.d_model, config.d_model, config.decoder_layers,
+                                 batch_first=True,
+                                 dropout=config.dropout if config.decoder_layers > 1 else 0.0)
+        self.hidden_bridge = nn.Linear(config.encoder_layers * config.d_model,
+                                       config.decoder_layers * config.d_model)
+        if self.is_lstm:
+            self.cell_bridge = nn.Linear(config.encoder_layers * config.d_model,
+                                         config.decoder_layers * config.d_model)
+        self.output_projection = nn.Linear(config.d_model, vocab_size, bias=False)
+        if config.tie_embeddings:
+            self.output_projection.weight = self.embedding.weight
+        nn.init.normal_(self.embedding.weight, std=0.02)
+
+    def bridge(self, state, projection):
+        batch = state.size(1)
+        return projection(state.transpose(0, 1).reshape(batch, -1)).reshape(
+            batch, self.config.decoder_layers, self.config.d_model).transpose(0, 1).contiguous()
+
+    def encode(self, input_ids, attention_mask):
+        if input_ids.size(1) > self.input_cap:
+            raise ValueError("Input exceeds the configured capacity.")
+        lengths = attention_mask.long().sum(dim=1).cpu()
+        if (lengths < 1).any():
+            raise ValueError("Recurrent encoders require at least one valid input token.")
+        embeddings = self.dropout(self.embedding(input_ids) * math.sqrt(self.config.d_model))
+        packed = nn.utils.rnn.pack_padded_sequence(embeddings, lengths, batch_first=True,
+                                                  enforce_sorted=False)
+        _, state = self.encoder(packed)
+        if self.is_lstm:
+            hidden = self.bridge(state[0], self.hidden_bridge).tanh()
+            state = (hidden, self.bridge(state[1], self.cell_bridge))
+        else:
+            hidden = self.bridge(state, self.hidden_bridge).tanh()
+            state = hidden
+        return EncodedMemory(hidden.transpose(0, 1), attention_mask, recurrent_state=state)
+
+    def decode_tokens(self, tokens, memory, cache=None, use_cache=False):
+        offset = cache["length"] if cache is not None else 0
+        if offset + tokens.size(1) > self.output_cap + 1:
+            raise ValueError("Decoder exceeds its configured capacity.")
+        state = cache["state"] if cache is not None else memory.recurrent_state
+        embeddings = self.dropout(self.embedding(tokens) * math.sqrt(self.config.d_model))
+        output, state = self.decoder(embeddings, state)
+        logits = self.output_projection(self.dropout(output)) / math.sqrt(self.config.d_model)
+        return logits, {"length": offset + tokens.size(1), "state": state} if use_cache else None
+
+    def forward(self, input_ids, attention_mask, labels):
+        decoder = labels.new_full(labels.shape, self.pad_id)
+        decoder[:, 1:] = labels[:, :-1].masked_fill(labels[:, :-1] == -100, self.pad_id)
+        return self.decode_tokens(decoder, self.encode(input_ids, attention_mask))[0]
+
+
+def model_backends(config):
+    """Declare library primitives without claiming a particular runtime GPU kernel."""
+    if config.variant in ("rnn_rnn", "lstm_lstm"):
+        primitive = "torch.nn.LSTM" if config.variant == "lstm_lstm" else "torch.nn.RNN (tanh)"
+        return {"encoder": primitive, "decoder": primitive,
+                "conditioning": "bridged final encoder state", "attention": None}
+    if config.variant == "t5_small":
+        return {"encoder": "Transformers T5", "decoder": "Transformers T5",
+                "conditioning": "cross-attention", "attention": "Transformers runtime-selected backend"}
+    encoder, decoder = config.variant.split("_")
+    return {"encoder": "bidirectional Mamba-1" if encoder == "mamba" else "PyTorch SDPA",
+            "decoder": "Mamba-1" if decoder == "mamba" else "PyTorch SDPA",
+            "conditioning": "cross-attention", "attention": "PyTorch SDPA"}
 
 
 class ScratchQA(nn.Module):
@@ -223,6 +313,9 @@ class T5QA(nn.Module):
 
 
 def build_model(config, tokenizer, data_config, pretrained=True):
+    if config.variant in ("rnn_rnn", "lstm_lstm"):
+        return RecurrentQA(config, len(tokenizer), tokenizer.pad_token_id, tokenizer.eos_token_id,
+                           data_config.max_input_length, data_config.max_output_length)
     if config.variant == "t5_small":
         from transformers import T5ForConditionalGeneration, T5Config
         if pretrained:

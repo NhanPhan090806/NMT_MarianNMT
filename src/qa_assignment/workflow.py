@@ -12,7 +12,7 @@ import torch
 from .config import BenchmarkConfig
 from .data import QACollator
 from .evaluation import benchmark, evaluate
-from .models import build_model
+from .models import build_model, model_backends
 from .runtime import probe_model, require_mamba_kernels
 from .training import Trainer, load_checkpoint
 from .utils import environment_info, parameter_counts, seed_everything, write_json
@@ -33,7 +33,7 @@ def run_experiment(bundle, model_config, train_config, output_root, device="cuda
         resume_path = None
     if resume_path is None and (checkpoint_dir / "last.pt").exists():
         raise FileExistsError("Run already exists. Use resume='auto' or a different output root/seed.")
-    kernels = require_mamba_kernels() if "mamba" in model_config.variant else {"attention": "PyTorch SDPA"}
+    kernels = require_mamba_kernels() if "mamba" in model_config.variant else model_backends(model_config)
     seed_everything(train_config.seed)
     environment = environment_info(repo_root)
     model = build_model(model_config, bundle.tokenizer, bundle.config).to(device)
@@ -84,7 +84,10 @@ def run_experiment(bundle, model_config, train_config, output_root, device="cuda
                         benchmark_config, train_config.precision) if benchmark_config is not None else None
     write_json(result_dir / "benchmark.json", timings)
     summary = {"variant": model_config.variant, "seed": train_config.seed,
-               "group": "transfer_learning" if model_config.variant == "t5_small" else "controlled",
+               "group": ("transfer_learning" if model_config.variant == "t5_small" else
+                         "recurrent_baseline" if model_config.variant in ("rnn_rnn", "lstm_lstm") else "controlled"),
+               "pretrained": model_config.variant == "t5_small", "model_backends": model_backends(model_config),
+               "train_config": asdict(train_config),
                "evaluation_scope": bundle.manifest["evaluation_scope"],
                "data_fingerprint": bundle.manifest["data_fingerprint"], "train_examples": len(bundle.train),
                "validation": validation, "training_seconds": state["training_seconds"],
@@ -105,14 +108,17 @@ def run_experiment(bundle, model_config, train_config, output_root, device="cuda
     return summary
 
 
-def collect_results(output_root):
+def collect_results(output_root, variants=None):
     import pandas as pd
 
     rows = []
     for path in sorted((Path(output_root) / "results").glob("*/seed_*/summary.json")):
         summary = json.loads(path.read_text(encoding="utf-8"))
+        if variants is not None and summary["variant"] not in variants:
+            continue
         timings = summary["benchmark"]
         rows.append({"variant": summary["variant"], "seed": summary["seed"], "group": summary["group"],
+                     "pretrained": summary.get("pretrained", summary["variant"] == "t5_small"),
                      "em": summary["validation"]["em"], "f1": summary["validation"]["f1"],
                      "training_seconds": summary["training_seconds"],
                      "qa_ms_per_sample": timings["qa_latency"]["mean_ms_per_sample"] if timings else None,
@@ -121,14 +127,19 @@ def collect_results(output_root):
                      "inference_peak_mib": max(r["peak_memory"]["allocated_mib"]
                                                for r in timings["qa_latency"]["measurements"]) if timings else None,
                      "parameters": summary["parameters"], "precision": summary["precision"],
+                     "epochs": summary.get("train_config", {}).get("epochs"),
+                     "learning_rate": summary.get("train_config", {}).get("learning_rate"),
                      "data_fingerprint": summary["data_fingerprint"]})
     table = pd.DataFrame(rows)
     if rows:
+        if variants is not None:
+            table = table.sort_values("variant", key=lambda values: values.map(
+                {variant: index for index, variant in enumerate(variants)})).reset_index(drop=True)
         table.to_csv(Path(output_root) / "results" / "comparison.csv", index=False)
     return table
 
 
-def plot_results(table, output_root):
+def plot_results(table, output_root, combine_groups=False):
     import matplotlib.pyplot as plt
 
     if table.empty:
@@ -137,9 +148,11 @@ def plot_results(table, output_root):
     if table.data_fingerprint.nunique() != 1:
         raise ValueError("Result data fingerprints differ; compare matching prepared data only.")
     figures = []
-    for group, group_table in table.groupby("group"):
+    groups = [("seq2seq_baselines", table)] if combine_groups else table.groupby("group")
+    for group, group_table in groups:
         figure, axes = plt.subplots(2, 3, figsize=(15, 8), constrained_layout=True)
-        labels = group_table.apply(lambda row: f"{row.variant}\ns{row.seed}", axis=1)
+        labels = group_table.apply(lambda row: f"{row.variant}\ns{row.seed}" +
+                                  (" (pretrained)" if row.variant == "t5_small" else ""), axis=1)
         for axis, column, title in zip(axes.flat, ("f1", "em", "training_seconds", "qa_ms_per_sample", "inference_peak_mib"),
                                        ("F1", "Exact match", "Training seconds", "QA latency (ms/sample)", "Inference peak memory (MiB)")):
             axis.bar(labels, group_table[column])

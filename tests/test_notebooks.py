@@ -2,6 +2,7 @@ import ast
 from pathlib import Path
 import subprocess
 import sys
+from dataclasses import replace
 
 import nbformat
 
@@ -62,3 +63,65 @@ print('Live-kernel setup passed')
                                 capture_output=True, text=True, encoding="utf-8", timeout=90)
         assert result.returncode == 0, result.stdout + result.stderr
         assert "Live-kernel setup passed" in result.stdout
+
+
+def test_baseline_notebook_runs_all_four_variants_without_mamba(tiny_bundle, tmp_path, monkeypatch):
+    """Execute the actual notebook orchestration on tiny data, without network calls."""
+    import json
+    import matplotlib
+    from transformers import T5Config, T5ForConditionalGeneration
+    from qa_assignment import runtime
+    from qa_assignment.config import BASELINE_VARIANTS, BenchmarkConfig
+    from qa_assignment.data import QACollator
+
+    matplotlib.use("Agg")
+    root = Path(__file__).resolve().parents[1]
+    notebook = nbformat.read(root / "02_t5_transfer_learning_kaggle.ipynb", as_version=4)
+    combined = "\n".join(cell.source for cell in notebook.cells if cell.cell_type == "code")
+    assert "install_mamba" not in combined and "require_mamba_kernels" not in combined
+    # A Mamba dependency on any notebook-2 execution path must fail this test.
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Baseline notebook must not load or install Mamba kernels")
+    monkeypatch.setattr(runtime, "require_mamba_kernels", forbidden)
+    monkeypatch.setattr(runtime, "install_mamba", forbidden)
+    hf_config = T5Config(vocab_size=32, d_model=16, d_ff=32, d_kv=8, num_layers=1,
+                         num_decoder_layers=1, num_heads=2, dropout_rate=0,
+                         pad_token_id=0, eos_token_id=1, decoder_start_token_id=0)
+    monkeypatch.setattr(T5ForConditionalGeneration, "from_pretrained",
+                        lambda *args, **kwargs: T5ForConditionalGeneration(hf_config))
+    def save_tokenizer(directory):
+        (Path(directory) / "tokenizer_config.json").write_text('{}', encoding="utf-8")
+    monkeypatch.setattr(tiny_bundle.tokenizer, "save_pretrained", save_tokenizer, raising=False)
+    namespace = {"bundle": tiny_bundle, "collator": QACollator(tiny_bundle.tokenizer, tiny_bundle.config),
+                 "OUTPUT_ROOT": tmp_path / "qa_baselines", "DEVICE": "cpu", "REPO_ROOT": None,
+                 "display": lambda *args: None}
+    exec(notebook.cells[7].source, namespace)
+    assert tuple(namespace["MODEL_VARIANTS"]) == BASELINE_VARIANTS
+    for variant in BASELINE_VARIANTS:
+        namespace["MODEL_CONFIGS"][variant] = replace(namespace["MODEL_CONFIGS"][variant],
+            d_model=16, encoder_layers=1, decoder_layers=1, heads=2, feedforward_dim=32, dropout=0)
+        namespace["TRAIN_CONFIGS"][variant] = replace(namespace["TRAIN_CONFIGS"][variant],
+            epochs=1, micro_batch_size=2, accumulation_steps=2, eval_batch_size=2,
+            save_every_steps=1, log_every_steps=1)
+    namespace["BENCHMARK_CONFIG"] = BenchmarkConfig(examples=2, repeats=1, warmup_runs=1,
+        throughput_batch_size=2, fixed_output_tokens=3)
+    # Only shorten the test pilot; execute the notebook's actual model loops.
+    original_pilot = runtime.run_pilot
+    monkeypatch.setattr(runtime, "run_pilot", lambda *args, **kwargs: original_pilot(
+        *args, **{**kwargs, "steps": 3}))
+    for index in (9, 11, 13, 15, 16):
+        exec(notebook.cells[index].source, namespace)
+    assert [summary["variant"] for summary in namespace["summaries"]] == list(BASELINE_VARIANTS)
+    assert namespace["table"].variant.tolist() == list(BASELINE_VARIANTS)
+    assert namespace["table"].pretrained.tolist() == [False, False, False, True]
+    for variant in BASELINE_VARIANTS:
+        checkpoint = namespace["OUTPUT_ROOT"] / "checkpoints" / variant / "seed_42"
+        assert (checkpoint / "last.pt").is_file() and (checkpoint / "best.pt").is_file()
+        results = namespace["OUTPUT_ROOT"] / "results" / variant / "seed_42"
+        summary = json.loads((results / "summary.json").read_text(encoding="utf-8"))
+        assert summary["validation"]["examples"] == 2
+        assert summary["benchmark"]["fixed_workload"]["measurements"][0]["mean_generated_tokens"] == 3
+    assert (namespace["OUTPUT_ROOT"] / "checkpoints" / "t5_small" / "seed_42" /
+            "hf_export" / "config.json").is_file()
+    assert (namespace["OUTPUT_ROOT"] / "results" / "seq2seq_baselines_comparison.png").is_file()
+    assert namespace["archive_path"].is_file()

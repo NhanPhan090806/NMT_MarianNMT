@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qa-assignment"
 version = "0.1.0"
-description = "Generative SQuAD experiments with attention, Mamba, and T5"
+description = "Generative SQuAD experiments with RNN, LSTM, attention, Mamba, and T5"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.5,<3",
@@ -27,4 +27,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-

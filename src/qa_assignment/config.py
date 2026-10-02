@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Literal
 
 VARIANTS = ("attn_attn", "mamba_attn", "attn_mamba", "mamba_mamba")
+BASELINE_VARIANTS = ("rnn_rnn", "lstm_lstm", "attn_attn", "t5_small")
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,7 @@ class ModelConfig:
     t5_revision: str = "main"
 
     def __post_init__(self):
-        if self.variant not in (*VARIANTS, "t5_small"):
+        if self.variant not in (*VARIANTS, *BASELINE_VARIANTS):
             raise ValueError(f"Unknown variant: {self.variant}")
         if min(self.d_model, self.heads, self.encoder_layers, self.decoder_layers,
                self.feedforward_dim, self.d_state, self.expand) < 1:
@@ -103,4 +104,3 @@ class BenchmarkConfig:
         if min(self.examples, self.repeats, self.throughput_batch_size,
                self.fixed_output_tokens) < 1 or self.warmup_runs < 0:
             raise ValueError("Invalid benchmark configuration.")
-

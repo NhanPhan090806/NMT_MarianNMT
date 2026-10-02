@@ -1,13 +1,13 @@
-# Generative QA assignment: attention, Mamba, and T5
+# Generative QA assignment: RNN, LSTM, attention, Mamba, and T5
 
 Python files contain data preparation, model definitions, training, checkpointing,
 evaluation, and profiling. Two Kaggle notebooks provide the interfaces:
 
 - `01_attention_mamba_kaggle.ipynb`: all four scratch encoder/decoder variants.
-- `02_t5_transfer_learning_kaggle.ipynb`: pretrained T5-small fine-tuning.
+- `02_t5_transfer_learning_kaggle.ipynb`: **RNN → LSTM → attention → T5**, all
+  encoder-decoder models, with no Mamba dependency. The existing filename is retained.
 
-The original `train_market1501_kaggle.ipynb` remains unchanged as your sample.
-`plan.md` describes the experimental design and limitations.
+`plan.md` records the original design and the revised notebook-2 scope.
 
 ## Start on Kaggle
 
@@ -23,7 +23,7 @@ The original `train_market1501_kaggle.ipynb` remains unchanged as your sample.
 6. Download `qa_assignment_artifacts.zip` or retain the Kaggle notebook outputs.
 
 The notebooks use a single GPU (`cuda:0`). They do not implement distributed training.
-The attention/Mamba notebook runs variants sequentially so optimizer states from one
+Both notebooks run variants sequentially so optimizer states from one
 model do not occupy GPU memory during another model's inference benchmark.
 
 ## Dataset and experiment controls
@@ -52,7 +52,41 @@ Default scratch models use width 128 and two layers per component. Increase dime
 only after the pilot; small models and no pretraining can yield low QA scores. The
 optional tiny-subset overfit diagnostic checks learning separately from kernel compatibility.
 One-seed results are exploratory. T5 uses a separately declared fine-tuning recipe and
-is kept in a separate results group.
+is identified as a transfer-learning reference.
+
+### Revised notebook 2: RNN → LSTM → attention → T5
+
+Notebook 2 runs `rnn_rnn`, `lstm_lstm`, `attn_attn`, then `t5_small`. RNN and LSTM use
+[PyTorch RNN](https://docs.pytorch.org/docs/stable/generated/torch.nn.RNN.html) and
+[PyTorch LSTM](https://docs.pytorch.org/docs/stable/generated/torch.nn.LSTM.html)
+layers in both encoder and decoder. The final encoder hidden state (and LSTM cell
+state) is projected into the decoder's initial state. Packed sequences exclude right
+padding from the encoder state. These are plain recurrent baselines without attention.
+The attention encoder-decoder reuses the PyTorch SDPA model, with causal decoder
+self-attention and masked cross-attention. T5 uses Hugging Face pretrained T5-small.
+
+All four share the same prepared data, tokenizer, greedy generation, development
+selection, EM/F1 implementation, and latency/throughput/memory measurement pipeline.
+The three scratch models default to width 128, two layers per component, five epochs,
+and learning rate 3e-4. T5 defaults to three epochs and learning rate 1e-4. Common
+FP32 precision and effective batch size 16 are the initial settings. The notebook
+provides a separate resource pilot for every model and an optional scratch overfit
+diagnostic. Change the configurations before starting full runs if the pilots show
+the combined budget is excessive.
+
+Artifacts default to `/kaggle/working/qa_baselines/`, with checkpoint subfolders
+`rnn_rnn/seed_42/`, `lstm_lstm/seed_42/`, `attn_attn/seed_42/`, and `t5_small/seed_42/`.
+Its ordered `comparison.csv` and combined `seq2seq_baselines_comparison.png` include
+all four models, while labeling T5 as pretrained and recording epochs/learning rates.
+Parameter counts differ; this comparison measures these declared recipes, and does
+not isolate architecture from the benefit of pretraining. Notebook 1 retains the
+original Mamba experiments.
+
+Push the source changes and upload the updated notebook 2 to Kaggle. Stop the ongoing
+Mamba installation and start a fresh GPU session for notebook 2; run it from the top.
+The filled repository URL is preserved. No Mamba or causal-conv1d build is invoked by
+notebook 2. Its archive is `qa_baselines_artifacts.zip`; set `RESTORE_FROM` to the saved
+baseline output folder when resuming. Use the same source revision and settings.
 
 ## Dependencies and Mamba compatibility
 
@@ -73,7 +107,7 @@ a Kaggle batch run. See [Python's site documentation](https://docs.python.org/3/
 The Mamba notebook requires the real selective-scan CUDA extension, optimized causal
 convolution, and Triton recurrent update. It checks module loading and then executes
 forward/backward and cached-generation probes on the actual accelerator. No Python
-Mamba substitute is used. The T5 notebook does not install Mamba.
+Mamba substitute is used. Notebook 2 does not install Mamba.
 
 If Mamba setup fails:
 
@@ -113,6 +147,8 @@ References: [Mamba pinned release](https://pypi.org/project/mamba-ssm/2.2.6.post
       validation.jsonl
       tokenizer/
   checkpoints/
+    rnn_rnn/seed_42/  # notebook 2, under qa_baselines/
+    lstm_lstm/seed_42/ # notebook 2, under qa_baselines/
     attn_attn/seed_42/
     mamba_attn/seed_42/
     attn_mamba/seed_42/
@@ -135,6 +171,7 @@ References: [Mamba pinned release](https://pypi.org/project/mamba-ssm/2.2.6.post
     comparison.csv
     controlled_comparison.png
     transfer_learning_comparison.png
+    seq2seq_baselines_comparison.png # combined notebook-2 comparison
 ```
 
 Each variant/seed directory has its own `last.pt`, `best.pt`, and up to two retained
@@ -177,7 +214,7 @@ and environment versions are recorded. Speedups are not guaranteed at 512 tokens
 
 The source tests require the development dependencies but do not download SQuAD or
 pretrained weights. They exercise metrics, article splitting, length filtering,
-attention causality/padding, incremental caches, a randomly initialized tiny T5,
+recurrent/attention causality and padding, incremental caches, a randomly initialized tiny T5,
 optimizer-boundary resumption, artifacts, and notebook validation. Mamba integration
 shell tests use a clearly labeled test-only causal mixer; real Mamba tests run only
 on a Linux CUDA environment with installed extensions.
@@ -191,6 +228,7 @@ The notebook generator is optional; both notebooks are already committed as plai
 `.ipynb` files with no execution outputs. Full SQuAD training and real Mamba kernel
 execution still require running the notebooks on Kaggle.
 
-The generator writes notebooks at the repository root. When updating existing
-notebooks it preserves repository URL/ref and experiment-control cells, refreshing
-only the shared installation section.
+The generator writes notebooks at the repository root. Its one-time notebook-2
+migration preserves repository URL/ref and data controls while replacing the old
+T5-only experiment cells with the new scope. Subsequent builds preserve experiment
+controls and refresh only the shared installation section.

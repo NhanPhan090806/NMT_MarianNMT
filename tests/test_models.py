@@ -2,7 +2,8 @@ import pytest
 import torch
 
 from qa_assignment.config import ModelConfig
-from qa_assignment.models import (BidirectionalMamba, ScratchQA, T5QA, generate, reverse_valid)
+from qa_assignment.models import (BidirectionalMamba, RecurrentQA, ScratchQA, T5QA,
+                                  build_model, generate, reverse_valid)
 from qa_assignment.runtime import probe_model
 from qa_assignment.data import QACollator
 
@@ -63,6 +64,57 @@ def test_t5_wrapper_forward_backward_and_cached_generation(tiny_bundle):
     model = T5QA(T5ForConditionalGeneration(config), ModelConfig(variant="t5_small"))
     batch = QACollator(tiny_bundle.tokenizer, tiny_bundle.config)(tiny_bundle.train.rows[:2])
     assert probe_model(model, batch, "cpu", output_cap=6)["finite_backward"]
+
+
+@pytest.mark.parametrize("variant", ["rnn_rnn", "lstm_lstm"])
+def test_recurrent_padding_context_causality_and_cache(tiny_bundle, variant):
+    config = ModelConfig(variant=variant, d_model=16, heads=2, encoder_layers=2,
+                         decoder_layers=1, feedforward_dim=32, dropout=0)
+    model = build_model(config, tiny_bundle.tokenizer, tiny_bundle.config)
+    assert isinstance(model, RecurrentQA)
+    batch = QACollator(tiny_bundle.tokenizer, tiny_bundle.config)(tiny_bundle.train.rows[:2])
+    assert probe_model(model, batch, "cpu", output_cap=6)["finite_backward"]
+    model.eval()
+    # Unsorted mixed lengths exercise packed-state restoration to original batch order.
+    ids = torch.tensor([[2, 1, 0, 0, 0], [3, 4, 5, 1, 0]])
+    mask = ids.ne(0).long()
+    memory = model.encode(ids, mask)
+    changed = ids.masked_fill(mask == 0, 25)
+    torch.testing.assert_close(memory.hidden, model.encode(changed, mask).hidden)
+    for row, length in enumerate((2, 4)):
+        single = model.encode(ids[row:row + 1, :length], mask[row:row + 1, :length])
+        torch.testing.assert_close(memory.hidden[row:row + 1], single.hidden)
+    other_context = ids.clone()
+    other_context[:, 0] = 20
+    assert not torch.allclose(memory.hidden, model.encode(other_context, mask).hidden)
+    prefix = torch.tensor([[0, 4, 5, 6], [0, 6, 7, 8]])
+    original, _ = model.decode_tokens(prefix, memory)
+    future = prefix.clone()
+    future[:, 2:] = 20
+    altered, _ = model.decode_tokens(future, memory)
+    torch.testing.assert_close(original[:, :2], altered[:, :2])
+    pieces, cache = [], None
+    for token in prefix.split(1, dim=1):
+        logits, cache = model.decode_tokens(token, memory, cache, True)
+        pieces.append(logits)
+    torch.testing.assert_close(torch.cat(pieces, 1), original, atol=1e-5, rtol=1e-5)
+    # Decoder predictions must actually depend on encoder conditioning.
+    other, _ = model.decode_tokens(prefix, model.encode(other_context, mask))
+    assert not torch.allclose(original, other)
+    cached = generate(model, ids, mask, 5, fixed_length=True)
+    uncached = generate(model, ids, mask, 5, fixed_length=True, use_cache=False)
+    assert torch.equal(cached, uncached)
+
+
+@pytest.mark.parametrize("variant", ["rnn_rnn", "lstm_lstm"])
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA GPU is required")
+def test_recurrent_actual_cuda_probes(tiny_bundle, variant):
+    config = ModelConfig(variant=variant, d_model=16, heads=2, encoder_layers=2,
+                         decoder_layers=2, feedforward_dim=32, dropout=0.1)
+    model = build_model(config, tiny_bundle.tokenizer, tiny_bundle.config).cuda()
+    batch = QACollator(tiny_bundle.tokenizer, tiny_bundle.config)(tiny_bundle.train.rows[:2])
+    for precision in ("fp32", "fp16"):
+        assert probe_model(model, batch, "cuda", precision, output_cap=6)["finite_backward"]
 
 
 def test_mamba_shells_have_bidirectional_padding_and_incremental_interfaces(monkeypatch, tiny_bundle):

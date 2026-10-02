@@ -902,7 +902,7 @@ The objective is to understand the **quality–efficiency trade-off between atte
 The chosen execution platform is now **Kaggle**, as requested. The Windows environment in Section 19 remains the local editing/testing environment; WSL setup is not part of the current implementation. Kaggle's notebook interpreter is used for notebook execution. No local environment upgrade or cloud purchase is required by this workflow.
 
 * `01_attention_mamba_kaggle.ipynb` clones the GitHub source and runs all four controlled variants by default. Selecting only Attn-Attn and Mamba-Attn gives the core scope.
-* `02_t5_transfer_learning_kaggle.ipynb` clones the same source and fine-tunes T5-small as a separate reference, without installing Mamba.
+* `02_t5_transfer_learning_kaggle.ipynb` now runs RNN, LSTM, attention encoder-decoders, and pretrained T5-small. It does not install Mamba; Section 26 describes the revised scope.
 * `REPO_URL` is intentionally an empty string for the user to fill in after pushing. Use the same Git commit and data configuration in both notebooks.
 * Python helpers live in `src/qa_assignment/`; long model, data, training, evaluation, and artifact logic stays out of notebook cells.
 * Each variant and seed writes separate `checkpoints/<variant>/seed_<seed>/` and `results/<variant>/seed_<seed>/` folders under `/kaggle/working/qa_assignment/`.
@@ -910,3 +910,48 @@ The chosen execution platform is now **Kaggle**, as requested. The Windows envir
 * Runtime probes check real Mamba CUDA kernels, finite forward/backward operations, and cached/uncached decoder agreement. Successful notebook generation or local attention/T5 tests do not establish Kaggle Mamba compatibility.
 * Main scratch training defaults to five epochs; the T5 reference defaults to three epochs with its separately declared learning rate. Shared pilot configuration must be adjusted before long runs when needed.
 * See `README.md` for setup, checkpoint layout, measured timing scope, and compatibility troubleshooting.
+
+---
+
+# 26. Revised Notebook 2 Scope: RNN → LSTM → Attention → T5
+
+After prolonged Mamba extension builds on Kaggle, the requested practical comparison
+is now four generative QA encoder-decoder models in notebook 2. Notebook 1 retains
+the original Mamba design; Sections 1–24 document that design and are not completion
+requirements for this alternative comparison.
+
+1. **RNN-RNN:** built-in PyTorch tanh RNN encoder and decoder, connected through a
+   learned projection of the final encoder hidden state; no cross-attention.
+2. **LSTM-LSTM:** built-in PyTorch LSTM encoder and decoder, with projected encoder
+   hidden/cell states initializing the decoder; no cross-attention.
+3. **Attention-Attention:** the existing PyTorch SDPA encoder-decoder, with
+   bidirectional encoder self-attention, causal decoder self-attention, and masked
+   cross-attention to the encoder output.
+4. **T5-small:** Hugging Face pretrained model fine-tuned as the transfer-learning
+   reference.
+
+RNN/LSTM inputs use packed sequences so padding does not replace the final encoder
+state. All models use the same SQuAD 1.1 retained examples, article-level split,
+tokenizer, caps, teacher forcing, target-token loss normalization, greedy generation,
+development F1 checkpoint selection, and official-validation EM/F1. The recurrent
+decoders cache their hidden/cell states; attention/T5 cache decoder keys/values.
+
+Record training loss/time, validation predictions and EM/F1, generated lengths,
+parameters, allocated/reserved peak GPU memory, batch-one latency, common-batch
+throughput, and fixed 32-token encoding/decoding workloads with the existing metric
+helpers. All four appear in one ordered comparison, with T5 labeled pretrained and
+its training recipe recorded. Equal width/depth does not give equal parameter counts.
+Differences involving T5 combine architecture, pretraining, and fine-tuning settings;
+do not claim this comparison isolates those causes.
+
+Notebook 2 uses Kaggle's installed PyTorch and pinned Transformers/tokenizer packages;
+it invokes no Mamba/causal-conv1d compilation. Artifacts live under
+`/kaggle/working/qa_baselines/`, with separate per-variant/seed checkpoint and result
+folders. Each model runs a resource/compatibility pilot before sequential full
+training. Scratch defaults are five epochs at 3e-4; T5 defaults are three epochs at
+1e-4. Use the measured pilot times to choose a feasible combined budget before long
+runs. Full training remains subject to Kaggle session and GPU limits.
+
+The revised question is: **Under the declared shared QA data and measured training
+recipes, how do RNN, LSTM, attention encoder-decoders, and pretrained T5 differ in
+answer quality, training cost, inference latency/throughput, and memory?**

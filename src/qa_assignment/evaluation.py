@@ -9,7 +9,7 @@ from tqdm.auto import tqdm
 
 from .data import move_batch
 from .metrics import score_predictions
-from .models import generate, generate_from_memory
+from .models import generate, generate_from_memory, model_backends
 from .utils import autocast_context, memory_peak, reset_memory, synchronize, write_json
 
 
@@ -64,7 +64,8 @@ def benchmark(model, dataset, collator, device, output_cap, config, precision="f
     results = {"example_ids": [row["id"] for row in subset.rows], "repeats": config.repeats,
                "precision": precision, "timing_scope": "model execution; excludes tokenization/transfers/loading",
                "decode_scope": "includes initial cache and cross-attention projection preparation",
-               "cache_enabled": True, "attention_backend": "PyTorch SDPA (runtime-selected kernel)"}
+               "cache_enabled": True, "model_backends": model_backends(model.config),
+               "attention_backend": model_backends(model.config)["attention"]}
     for name, batch_size, fixed in (("qa_latency", 1, False),
                                    ("qa_throughput", config.throughput_batch_size, False),
                                    ("fixed_workload", config.throughput_batch_size, True)):
@@ -105,4 +106,3 @@ def benchmark(model, dataset, collator, device, output_cap, config, precision="f
                          "mean_ms_per_sample": statistics.mean(r["mean_ms_per_sample"] for r in repeat_rows),
                          "samples_per_second": statistics.mean(r["samples_per_second"] for r in repeat_rows)}
     return results
-

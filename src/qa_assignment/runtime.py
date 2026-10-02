@@ -12,7 +12,7 @@ import torch
 from torch.nn import functional as F
 
 from .data import move_batch
-from .models import build_model, generate
+from .models import build_model, generate, model_backends
 from .training import optimizer_for
 from .utils import (autocast_context, environment_info, memory_peak, reset_memory,
                     restore_rng, rng_state, seed_everything, synchronize, write_json)
@@ -102,7 +102,7 @@ def run_pilot(bundle, model_config, train_config, collator, device="cuda", steps
     if "mamba" in model_config.variant:
         kernels = require_mamba_kernels()
     else:
-        kernels = {"attention": "PyTorch SDPA"}
+        kernels = model_backends(model_config)
     seed_everything(train_config.seed)
     model = build_model(model_config, bundle.tokenizer, bundle.config).to(device)
     batch = move_batch(collator(bundle.train.rows[:train_config.micro_batch_size]), device)

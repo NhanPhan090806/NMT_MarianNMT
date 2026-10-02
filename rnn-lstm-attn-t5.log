@@ -1,0 +1,64 @@
+7.7s 1 0.00s - Debugger warning: It seems that frozen modules are being used, which may
+7.7s 2 0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+7.7s 3 0.00s - to python to disable frozen modules.
+7.7s 4 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+8.3s 5 0.00s - Debugger warning: It seems that frozen modules are being used, which may
+8.3s 6 0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+8.3s 7 0.00s - to python to disable frozen modules.
+8.3s 8 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+9.5s 9 Cloning into '/kaggle/working/qa_assignment_source'...
+9.7s 10 Cloning into '/kaggle/working/qa_assignment_source'...
+9.7s 11 
+9.7s 12 Cloning into '/kaggle/working/qa_assignment_source'...
+11.1s 13 From https://github.com/NhanPhan090806/Mamba_Attention
+11.1s 14 * branch            main       -> FETCH_HEAD
+11.1s 15 HEAD is now at 419fed3 first commit
+11.1s 16 419fed3a5a28a162dd62e8088dad11c7c88d6fd0
+11.1s 17 Source: /kaggle/working/qa_assignment_source
+11.1s 18 Artifacts: /kaggle/working/qa_baselines
+11.1s 19 419fed3a5a28a162dd62e8088dad11c7c88d6fd0
+11.1s 20 From https://github.com/NhanPhan090806/Mamba_Attention
+11.1s 21 * branch            main       -> FETCH_HEAD
+11.1s 22 HEAD is now at 419fed3 first commit
+11.1s 23 
+11.1s 24 From https://github.com/NhanPhan090806/Mamba_Attention
+11.1s 25 * branch            main       -> FETCH_HEAD
+11.1s 26 HEAD is now at 419fed3 first commit
+13.6s 27 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44.0/44.0 kB 1.8 MB/s eta 0:00:00
+13.8s 28 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44.0/44.0 kB 1.8 MB/s eta 0:00:00
+14.3s 29 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 12.0/12.0 MB 108.8 MB/s eta 0:00:00
+14.4s 30 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 566.4/566.4 kB 26.4 MB/s eta 0:00:00
+14.5s 31 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 12.0/12.0 MB 108.8 MB/s eta 0:00:00
+14.5s 32 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 566.4/566.4 kB 26.4 MB/s eta 0:00:00
+37.3s 33 Loaded helpers: /kaggle/working/qa_assignment_source/src/qa_assignment/__init__.py
+92.0s 34 Data fingerprint: 7cbcbef1c716e9c87468df9c60bcb53c719a1bc41d7ad24f9f1eddf462369e20
+92.0s 35 Prepared cache: /kaggle/working/qa_baselines/data/prepared/70ac4fa383c9cbec
+92.0s 36 Train / development / validation: 79446 7858 10485
+95.0s 37 Traceback (most recent call last):
+95.0s 38 File "<string>", line 1, in <module>
+95.0s 39 File "/usr/local/lib/python3.12/dist-packages/papermill/execute.py", line 131, in execute_notebook
+95.0s 40 raise_for_execution_errors(nb, output_path)
+95.0s 41 File "/usr/local/lib/python3.12/dist-packages/papermill/execute.py", line 251, in raise_for_execution_errors
+95.0s 42 raise error
+95.0s 43 papermill.exceptions.PapermillExecutionError:
+95.0s 44 ---------------------------------------------------------------------------
+95.0s 45 Exception encountered at "In [4]":
+95.0s 46 ---------------------------------------------------------------------------
+95.0s 47 ImportError                               Traceback (most recent call last)
+95.0s 48 /tmp/ipykernel_23/2436970584.py in <cell line: 0>()
+95.0s 49 1 from dataclasses import replace
+95.0s 50 ----> 2 from qa_assignment.config import ModelConfig, TrainConfig, BenchmarkConfig, BASELINE_VARIANTS
+95.0s 51 3
+95.0s 52 4 MODEL_VARIANTS = list(BASELINE_VARIANTS)  # rnn_rnn, lstm_lstm, attn_attn, t5_small
+95.0s 53 5 SEEDS = [42]
+95.0s 54 
+95.0s 55 ImportError: cannot import name 'BASELINE_VARIANTS' from 'qa_assignment.config' (/kaggle/working/qa_assignment_source/src/qa_assignment/config.py)
+95.0s 56 
+97.2s 57 /usr/local/lib/python3.12/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\|'
+97.2s 58 cells[i][c] = re.sub('\\\\\|', '|', cell)
+97.3s 59 /usr/local/lib/python3.12/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\_'
+97.3s 60 text = re.sub(r'_', '\_', text) # Escape underscores in display text
+98.0s 61 [NbConvertApp] Converting notebook __notebook__.ipynb to notebook
+98.3s 62 [NbConvertApp] Writing 98365 bytes to __notebook__.ipynb
+100.7s 63 [NbConvertApp] Converting notebook __notebook__.ipynb to html
+101.6s 64 [NbConvertApp] Writing 379490 bytes to __results__.html
