@@ -15,13 +15,15 @@ from .utils import autocast_context, memory_peak, reset_memory, synchronize, wri
 
 @torch.inference_mode()
 def evaluate(model, dataset, collator, tokenizer, device, output_cap, batch_size=8,
-             precision="fp32", limit=None, prediction_path=None):
+             precision="fp32", limit=None, prediction_path=None,
+             include_teacher_forced=False, sample_limit=0):
     model.eval()
     subset = dataset if limit is None else dataset.first(limit)
     if not len(subset):
         raise ValueError("Cannot evaluate an empty dataset.")
     loader = DataLoader(subset, batch_size=batch_size, collate_fn=collator, num_workers=0)
-    predictions, references, lengths = {}, {}, []
+    predictions, references, lengths, samples = {}, {}, [], []
+    loss_sum, correct_tokens, target_tokens, first_eos = 0.0, 0, 0, 0
     reset_memory(device)
     synchronize(device)
     started = time.perf_counter()
@@ -29,16 +31,37 @@ def evaluate(model, dataset, collator, tokenizer, device, output_cap, batch_size
         batch = move_batch(batch, device)
         with autocast_context(device, precision):
             generated = generate(model, batch["input_ids"], batch["attention_mask"], output_cap)
+            if include_teacher_forced:
+                logits = model(batch["input_ids"], batch["attention_mask"], batch["labels"])
+                valid = batch["labels"].ne(-100)
+                loss_sum += torch.nn.functional.cross_entropy(
+                    logits.float().reshape(-1, logits.size(-1)), batch["labels"].reshape(-1),
+                    ignore_index=-100, reduction="sum").item()
+                correct_tokens += int(((logits.argmax(-1) == batch["labels"]) & valid).sum())
+                target_tokens += int(valid.sum())
+                del logits, valid
         generated = generated.cpu().tolist()
         texts = tokenizer.batch_decode(generated, skip_special_tokens=True)
-        for key, text, answers, ids in zip(batch["ids"], texts, batch["answers"], generated):
+        inputs = tokenizer.batch_decode(batch["input_ids"].cpu().tolist(), skip_special_tokens=True) if (
+            sample_limit and len(samples) < sample_limit) else [None] * len(texts)
+        for key, text, answers, ids, formatted_input in zip(batch["ids"], texts, batch["answers"], generated, inputs):
             predictions[key], references[key] = text, answers
             lengths.append(ids.index(model.eos_id) + 1 if model.eos_id in ids else len(ids))
+            first_eos += int(ids[0] == model.eos_id)
+            if len(samples) < sample_limit:
+                samples.append({"id": key, "formatted_input": formatted_input,
+                                "prediction": text, "answers": answers})
     synchronize(device)
     elapsed = time.perf_counter() - started
     metrics = score_predictions(predictions, references)
     metrics.update({"evaluation_seconds": elapsed, "evaluation_ms_per_example": 1000 * elapsed / len(subset),
                     "mean_generated_tokens": statistics.mean(lengths), "peak_memory": memory_peak(device)})
+    metrics["first_token_eos_percent"] = 100 * first_eos / len(subset)
+    if include_teacher_forced:
+        metrics.update({"teacher_forced_loss": loss_sum / target_tokens,
+                        "teacher_forced_token_accuracy": 100 * correct_tokens / target_tokens})
+    if sample_limit:
+        metrics["prediction_samples"] = samples
     if prediction_path is not None:
         write_json(prediction_path, {"metrics": metrics, "predictions": predictions, "references": references})
     return metrics

@@ -1,4 +1,4 @@
-"""Regenerate the two lightweight Kaggle interfaces without notebook outputs."""
+"""Regenerate lightweight Kaggle training/testing interfaces without outputs."""
 
 from pathlib import Path
 from textwrap import dedent
@@ -27,7 +27,7 @@ def common_cells(title, description):
         below after pushing this project to GitHub. The workflow uses GPU 0, even if
         Kaggle exposes two GPUs. Long implementations live in `src/qa_assignment/`.
 
-        Artifacts go to `/kaggle/working/qa_assignment/`. Each variant and seed has its
+        Artifacts go to `/kaggle/working/qa_assignment_retrain/`. Each variant and seed has its
         own checkpoint directory. Kaggle working files are temporary: download the
         archive or save the notebook outputs, then attach those outputs to resume a
         later session. Checkpoints are written every 250 optimizer steps and each epoch.
@@ -42,7 +42,7 @@ def common_cells(title, description):
         SOURCE_SUBDIR = "."  # edit if this assignment lives below the repository root
         WORKSPACE = Path("/kaggle/working")
         CLONE_ROOT = WORKSPACE / "qa_assignment_source"
-        OUTPUT_ROOT = WORKSPACE / "qa_assignment"
+        OUTPUT_ROOT = WORKSPACE / "qa_assignment_retrain"
         RESTORE_FROM = None  # e.g. Path('/kaggle/input/prior-qa-output/qa_assignment')
 
         if not REPO_URL.strip():
@@ -207,6 +207,60 @@ def ending_cells(baselines=False):
     ]
 
 
+def learning_cells(model_configs, attention_train_config):
+    return [
+        md("""
+        ## Learning diagnostic before retraining
+
+        Enabled by default. Each fresh scratch model learns 16 fixed training
+        examples, preferring different articles. It uses FP32, zero weight decay,
+        disabled dropout, constant diagnostic LR 3e-3, no warmup, and at most 1,500
+        optimizer steps. These easier memorization settings differ from main training.
+        Check every 100 steps and finish once generated-answer F1 reaches 95.
+
+        Reports, predictions, gradient norms, token accuracy, immediate-EOS rate,
+        and plots go to `results/diagnostics/<variant>/seed_42/`. Diagnostic weights
+        are discarded. A failed diagnostic skips that variant's main training by
+        default; the next model and T5 can still run. Runtime failures still raise.
+        Adjust the diagnostic settings and rerun it to investigate failed models.
+        `REQUIRE_DIAGNOSTIC_PASS=False` explicitly permits retraining failed variants.
+
+        An optional attention pilot trains 2,000 training examples for three epochs
+        and evaluates 256 internal-development examples. It uses the main recipe,
+        writes separate artifacts, and never evaluates official validation. Inspect
+        its curves as exploratory evidence, not an automatic pass/fail criterion.
+        """),
+        code(f"""
+        from qa_assignment.config import DiagnosticConfig
+        from qa_assignment.diagnostics import (run_learning_diagnostics,
+                                                diagnostic_allows_training,
+                                                generalization_diagnostic)
+        from qa_assignment.workflow import archive_outputs
+
+        RUN_OVERFIT_DIAGNOSTIC = True
+        REQUIRE_DIAGNOSTIC_PASS = True
+        RUN_GENERALIZATION_PILOT = False  # enable to inspect the small attention pilot
+        DIAGNOSTIC_CONFIG = DiagnosticConfig(examples=16, steps=1500,
+                                             micro_batch_size=4, eval_every_steps=100,
+                                             learning_rate=3e-3, target_f1=95.0)
+        diagnostic_reports = {{}}
+        if RUN_OVERFIT_DIAGNOSTIC:
+            try:
+                diagnostic_reports = run_learning_diagnostics(
+                    bundle, {model_configs}, collator, OUTPUT_ROOT, DEVICE, DIAGNOSTIC_CONFIG)
+            finally:
+                print("Diagnostic artifacts archived at:", archive_outputs(OUTPUT_ROOT))
+        if RUN_GENERALIZATION_PILOT and diagnostic_allows_training(
+                "attn_attn", diagnostic_reports, REQUIRE_DIAGNOSTIC_PASS):
+            pilot_report = generalization_diagnostic(
+                bundle, {model_configs}["attn_attn"], {attention_train_config},
+                collator, OUTPUT_ROOT, DEVICE, examples=2000,
+                development_examples=256, epochs=3, repo_root=REPO_ROOT)
+            print(pilot_report["state"]["history"])
+        """),
+    ]
+
+
 def build_attention_mamba():
     cells = common_cells("Attention / Mamba encoder-decoder experiments on Kaggle",
                          "Train the four scratch variants, retaining shared decoder cross-attention.")
@@ -244,12 +298,13 @@ def build_attention_mamba():
         precision for all variants. FP32 is the initial compatibility setting; FP16
         needs a successful probe. Multiple seeds multiply training cost.
 
-        All variants use independent development-F1 early stopping, with the same
-        policy as notebook 2. Evaluate every 1,000 optimizer steps and at epoch end.
-        From step 5,000, five checks without an improvement greater than 0.1 F1
-        points stop that run. The maximum is 20 epochs. The highest-F1 `best.pt`
-        supplies final evaluation and benchmarking; official validation never
-        decides stopping. Set `EARLY_STOPPING_PATIENCE=0` to disable stopping.
+        Scratch retraining uses five epochs and disables early stopping. A 1% warmup
+        replaces the previous 20-epoch/5%-warmup schedule. Development evaluation
+        still runs every 1,000 optimizer steps and at epoch end, now recording
+        teacher-forced loss, token accuracy, immediate EOS, and generated examples.
+        Highest development F1 selects `best.pt`; lower development loss breaks
+        exact F1 ties so a flat-zero run does not retain its first checkpoint.
+        The separate learning diagnostic below must pass before a variant retrains.
         """),
         code("""
         from dataclasses import replace
@@ -259,12 +314,13 @@ def build_attention_mamba():
         SEEDS = [42]  # extend to [42, 43, 44] if your budget permits
         MODEL_CONFIG = ModelConfig(d_model=128, encoder_layers=2, decoder_layers=2,
                                    heads=4, feedforward_dim=512, dropout=0.1)
-        EARLY_STOPPING_PATIENCE = 5  # development checks, not epochs
+        EARLY_STOPPING_PATIENCE = 0  # disabled for scratch retraining
         EARLY_STOPPING_MIN_DELTA = 0.1  # absolute F1 points on the 0..100 scale
-        EARLY_STOPPING_MIN_STEPS = 5000
+        EARLY_STOPPING_MIN_STEPS = 0
         EVAL_EVERY_STEPS = 1000  # optimizer steps; also evaluate at epoch end
-        TRAIN_CONFIG = TrainConfig(epochs=20, micro_batch_size=4, accumulation_steps=4,
+        TRAIN_CONFIG = TrainConfig(epochs=5, micro_batch_size=4, accumulation_steps=4,
                                    eval_batch_size=8, learning_rate=3e-4, precision="fp32",
+                                   warmup_fraction=0.01,
                                    save_every_steps=250, development_limit=None,
                                    eval_every_steps=EVAL_EVERY_STEPS,
                                    early_stopping_patience=EARLY_STOPPING_PATIENCE,
@@ -295,24 +351,8 @@ def build_attention_mamba():
             print(variant, pilots[variant])
         write_json(OUTPUT_ROOT / "results" / "controlled_pilots.json", pilots)
         """),
-        md("""
-        ## Optional tiny-subset learning diagnostic
-
-        Enable this to check that a fresh model can learn four fixed training examples.
-        This diagnostic is separate from the main experiment and final validation.
-        Increase steps if it has not overfit; inspect the answer examples and losses.
-        A successful resource probe alone does not show that a model learned QA.
-        """),
-        code("""
-        from qa_assignment.diagnostics import overfit_diagnostic
-
-        RUN_OVERFIT_DIAGNOSTIC = False
-        if RUN_OVERFIT_DIAGNOSTIC:
-            for variant in MODEL_VARIANTS:
-                report = overfit_diagnostic(bundle, replace(MODEL_CONFIG, variant=variant),
-                                             collator, DEVICE, steps=300)
-                print(variant, report)
-        """),
+    ] + learning_cells("{variant: replace(MODEL_CONFIG, variant=variant) for variant in MODEL_VARIANTS}",
+                        "TRAIN_CONFIG") + [
         md("""
         ## Train, checkpoint, final evaluation, and benchmark
 
@@ -322,10 +362,11 @@ def build_attention_mamba():
         random state, and within-epoch cursor are restored. Final validation runs only
         after training and checkpoint selection finish.
 
-        Start fresh for the updated stopping policy: leave `RESTORE_FROM=None` and
-        use an empty output root. Stopping counters and decisions are checkpointed.
-        Later matching resumes retain patience; already-stopped runs skip training,
-        evaluate the best checkpoint, and let the loop continue to the next variant.
+        The new default output root is `/kaggle/working/qa_assignment_retrain/`.
+        Leave `RESTORE_FROM=None` for the first run. Previous stopped runs have
+        incompatible settings; use their artifacts only for analysis/testing.
+        Later resumptions require this run's complete checkpoint folders and
+        identical source/settings. Diagnostic models never supply initial weights.
         """),
         code("""
         from qa_assignment.workflow import run_experiment, archive_outputs
@@ -335,6 +376,8 @@ def build_attention_mamba():
         if RUN_TRAINING:
             try:
                 for variant in MODEL_VARIANTS:
+                    if not diagnostic_allows_training(variant, diagnostic_reports, REQUIRE_DIAGNOSTIC_PASS):
+                        continue
                     for seed in SEEDS:
                         summaries.append(run_experiment(
                             bundle, replace(MODEL_CONFIG, variant=variant), replace(TRAIN_CONFIG, seed=seed),
@@ -353,9 +396,9 @@ def build_attention_mamba():
 def build_baselines():
     cells = common_cells("RNN → LSTM → Attention → T5 encoder-decoder QA on Kaggle",
                          "Train three scratch encoder-decoders and fine-tune T5-small using one shared QA workflow.")
-    cells[1].source = cells[1].source.replace('OUTPUT_ROOT = WORKSPACE / "qa_assignment"',
-                                             'OUTPUT_ROOT = WORKSPACE / "qa_baselines"')
-    cells[0].source = cells[0].source.replace("/kaggle/working/qa_assignment/", "/kaggle/working/qa_baselines/")
+    cells[1].source = cells[1].source.replace('OUTPUT_ROOT = WORKSPACE / "qa_assignment_retrain"',
+                                             'OUTPUT_ROOT = WORKSPACE / "qa_baselines_retrain"')
+    cells[0].source = cells[0].source.replace("/kaggle/working/qa_assignment_retrain/", "/kaggle/working/qa_baselines_retrain/")
     cells += data_cells() + [
         md("""
         ## Four models, one dataset and metric pipeline
@@ -383,19 +426,22 @@ def build_baselines():
         PRECISION = "fp32"  # keep common; change only after every model passes its probe
         SCRATCH_MODEL_CONFIG = ModelConfig(d_model=128, encoder_layers=2, decoder_layers=2,
                                            heads=4, feedforward_dim=512, dropout=0.1)
-        EARLY_STOPPING_PATIENCE = 5  # development checks, not epochs
+        EARLY_STOPPING_PATIENCE = 0  # disabled for scratch retraining
         EARLY_STOPPING_MIN_DELTA = 0.1  # absolute F1 points; scores run from 0 to 100
-        EARLY_STOPPING_MIN_STEPS = 5000  # let scratch models begin learning before counting failures
+        EARLY_STOPPING_MIN_STEPS = 0
         EVAL_EVERY_STEPS = 1000  # also evaluates at epoch end; optimizer steps, not microbatches
-        SCRATCH_TRAIN_CONFIG = TrainConfig(epochs=20, micro_batch_size=4, accumulation_steps=4,
+        SCRATCH_TRAIN_CONFIG = TrainConfig(epochs=5, micro_batch_size=4, accumulation_steps=4,
                                            eval_batch_size=8, learning_rate=3e-4, precision=PRECISION,
+                                           warmup_fraction=0.01,
                                            save_every_steps=250, development_limit=None,
                                            eval_every_steps=EVAL_EVERY_STEPS,
                                            early_stopping_patience=EARLY_STOPPING_PATIENCE,
                                            early_stopping_min_delta=EARLY_STOPPING_MIN_DELTA,
                                            early_stopping_min_steps=EARLY_STOPPING_MIN_STEPS)
         T5_MODEL_CONFIG = ModelConfig(variant="t5_small", t5_name="google-t5/t5-small")
-        T5_TRAIN_CONFIG = replace(SCRATCH_TRAIN_CONFIG, epochs=5, learning_rate=1e-4)
+        T5_TRAIN_CONFIG = replace(SCRATCH_TRAIN_CONFIG, epochs=5, learning_rate=1e-4,
+                                  warmup_fraction=0.05, early_stopping_patience=5,
+                                  early_stopping_min_steps=5000)
         MODEL_CONFIGS = {variant: T5_MODEL_CONFIG if variant == "t5_small" else
                          replace(SCRATCH_MODEL_CONFIG, variant=variant) for variant in MODEL_VARIANTS}
         TRAIN_CONFIGS = {variant: T5_TRAIN_CONFIG if variant == "t5_small" else
@@ -430,24 +476,7 @@ def build_baselines():
             print(variant, pilots[variant])
         write_json(OUTPUT_ROOT / "results" / "baseline_pilots.json", pilots)
         """),
-        md("""
-        ## Optional tiny-subset learning diagnostic
-
-        A successful runtime probe checks execution, not whether a model learns QA.
-        Enable this to train each fresh scratch model on four fixed examples and
-        inspect its losses and generated answers. Adjust diagnostic steps if needed.
-        Diagnostic models and results are separate from the main experiment.
-        """),
-        code("""
-        from qa_assignment.diagnostics import overfit_diagnostic
-
-        RUN_OVERFIT_DIAGNOSTIC = False
-        if RUN_OVERFIT_DIAGNOSTIC:
-            for variant in MODEL_VARIANTS:
-                if variant != "t5_small":
-                    print(variant, overfit_diagnostic(bundle, MODEL_CONFIGS[variant],
-                                                      collator, DEVICE, steps=300))
-        """),
+    ] + learning_cells("MODEL_CONFIGS", "SCRATCH_TRAIN_CONFIG") + [
         md("""
         ## Train RNN, LSTM, attention, then fine-tune T5
 
@@ -457,17 +486,16 @@ def build_baselines():
         automatically. Final official-validation EM/F1 and identical timing workloads
         use the selected checkpoint. T5 also saves the selected `hf_export/`.
 
-        The output root defaults to `/kaggle/working/qa_baselines/` so these runs have
+        The output root defaults to `/kaggle/working/qa_baselines_retrain/` so these runs have
         their own artifacts. Save the notebook outputs to resume a later session.
 
-        Scratch runs have a maximum of 20 epochs; T5 has a maximum of 5. Development
-        F1 is checked every 1,000 optimizer steps and at epoch end. After step 5,000,
-        five checks without an improvement greater than 0.1 F1 points stop that
-        model, then the loop moves to the next model. Training loss is still logged,
-        but it is not the stopping signal. The highest observed development F1
-        still selects `best.pt`, including improvements smaller than the threshold.
-        Official validation is never used for stopping. Patience survives resumption;
-        resuming an already-stopped run skips training and evaluates its selected model.
+        Scratch runs use five epochs, 1% warmup, and no early stopping. T5 keeps
+        its five-epoch limit, 5% warmup, and F1 stopping policy (patience 5 checks,
+        min_delta 0.1, minimum step 5,000). Development checks occur every 1,000
+        optimizer steps and at epoch end. They include teacher-forced loss, token
+        accuracy, immediate EOS, and sample answers. F1 selects `best.pt`, with
+        lower development loss breaking exact F1 ties. Official validation never
+        selects checkpoints or stops training.
 
         Start fresh for these updated runs. Leave `RESTORE_FROM=None` and use an
         empty output root. Later resumptions of these runs require the complete
@@ -481,6 +509,8 @@ def build_baselines():
         if RUN_TRAINING:
             try:
                 for variant in MODEL_VARIANTS:
+                    if not diagnostic_allows_training(variant, diagnostic_reports, REQUIRE_DIAGNOSTIC_PASS):
+                        continue
                     for seed in SEEDS:
                         summary = run_experiment(
                             bundle, MODEL_CONFIGS[variant], replace(TRAIN_CONFIGS[variant], seed=seed),
@@ -498,10 +528,115 @@ def build_baselines():
     return cells
 
 
+def build_t5_testing():
+    cells = common_cells("Ask your fine-tuned T5 questions", "Load a saved model once and ask questions about a passage.")
+    cells[0] = md("""
+        # Test your fine-tuned T5 question-answering model
+
+        Attach notebook 2's saved outputs as a Kaggle input, including the selected
+        `checkpoints/t5_small/seed_42/hf_export/` folder. The earlier successful run's
+        export works too; retraining is not required to use this notebook.
+        Set `REPO_URL`, clone/install the Python helpers, and select your export below.
+        No dataset download, training, or Mamba installation runs here. GPU is optional.
+
+        This model answers questions from a supplied English passage. Provide the
+        context containing the answer; it was not trained as a general chatbot.
+        """)
+    cells[1].source = cells[1].source.replace('OUTPUT_ROOT = WORKSPACE / "qa_assignment_retrain"',
+                                             'OUTPUT_ROOT = WORKSPACE / "t5_qa_test"')
+    cells[3].source = cells[3].source[:cells[3].source.index('if not torch.cuda.is_available():')] + (
+        'DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"\n'
+        'OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)\n'
+        'print("Inference device:", DEVICE)\n')
+    cells += [
+        md("""
+        ## Load your saved model
+
+        `MODEL_DIR` is a local folder, for example
+        `/kaggle/input/YOUR-SAVED-OUTPUT/qa_baselines/checkpoints/t5_small/seed_42/hf_export`.
+        Enter the exact path shown below. If only one T5 export is attached, an empty
+        setting selects it automatically. With multiple exports, choose one explicitly.
+        The model and tokenizer load entirely from the export, without fetching new weights.
+        Run this cell once; subsequent question cells reuse the loaded model.
+        """),
+        code("""
+        from qa_assignment.inference import T5Answerer, find_t5_exports
+
+        MODEL_DIR = ""  # path to the attached hf_export/ folder; not best.pt
+        exports = find_t5_exports([Path("/kaggle/input"), Path("/kaggle/working")])
+        print("Available T5 exports:")
+        for index, path in enumerate(exports):
+            print(index, path)
+        if not MODEL_DIR.strip():
+            if len(exports) != 1:
+                raise ValueError("Attach your saved output, then set MODEL_DIR to one listed hf_export folder.")
+            MODEL_DIR = str(exports[0])
+        qa = T5Answerer.from_export(MODEL_DIR, device=DEVICE)
+        print("Loaded:", MODEL_DIR)
+        print("Question + passage limit:", qa.max_input_length, "tokens")
+        """),
+        md("""
+        ## Your passage and question
+
+        Replace the passage and question below, then rerun these cells to ask more.
+        The complete question plus passage must fit the saved input limit (normally
+        512 tokens); overly long inputs are rejected so the answer's context is not
+        silently discarded. Questions with no answer in the passage can still receive
+        an incorrect answer: this SQuAD 1.1 model has no trained abstention behavior.
+        """),
+        code("""
+        PASSAGE = (
+            "Super Bowl 50 was played on February 7, 2016, at Levi's Stadium in "
+            "Santa Clara, California. The Denver Broncos defeated the Carolina "
+            "Panthers by a score of 24-10. Von Miller was named the game's MVP."
+        )
+        QUESTION = "Which team won Super Bowl 50?"
+        print("Answer:", qa.answer(QUESTION, PASSAGE) or "<empty answer>")
+        """),
+        md("""
+        ## Ask several questions about the same passage
+
+        Edit this list and rerun the cell. The model stays loaded. Each question is
+        answered independently from the passage; prior answers are not chat history.
+        """),
+        code("""
+        QUESTIONS = [
+            "Where was Super Bowl 50 played?",
+            "Who was named the game's MVP?",
+            "When was Super Bowl 50 played?",
+        ]
+        for result in qa.answer_many(QUESTIONS, PASSAGE):
+            print("Question:", result["question"])
+            print("Answer:", result["answer"] or "<empty answer>")
+        """),
+        md("""
+        ## Optional typed questions and saved answers
+
+        For a manual session, enable the input loop below. Submit an empty question
+        to exit. It defaults off so a saved Kaggle run cannot wait indefinitely for input.
+        Answers from either interface can be saved in Kaggle Output.
+        """),
+        code("""
+        RUN_INTERACTIVE_CHAT = False
+        if RUN_INTERACTIVE_CHAT:
+            qa.interactive(PASSAGE)
+        """),
+        code("""
+        from qa_assignment.utils import write_json
+
+        answer_log = OUTPUT_ROOT / "answers.json"
+        write_json(answer_log, {"model_dir": MODEL_DIR, "answers": qa.history})
+        print("Saved answers:", answer_log)
+        """),
+    ]
+    return cells
+
+
 def main():
     directory = ROOT
     for name, cells in (("01_attention_mamba_kaggle.ipynb", build_attention_mamba()),
-                        ("02_t5_transfer_learning_kaggle.ipynb", build_baselines())):
+                        ("02_t5_transfer_learning_kaggle.ipynb", build_baselines()),
+                        ("03_t5_question_answering_kaggle.ipynb", build_t5_testing())):
         notebook = nbf.v4.new_notebook(cells=cells)
         destination = directory / name
         if destination.exists():
@@ -512,7 +647,7 @@ def main():
                 # New scope: retain the user's clone settings and data controls.
                 notebook.cells[1] = existing.cells[1]
                 notebook.cells[1].source = notebook.cells[1].source.replace(
-                    'OUTPUT_ROOT = WORKSPACE / "qa_assignment"', 'OUTPUT_ROOT = WORKSPACE / "qa_baselines"')
+                    'OUTPUT_ROOT = WORKSPACE / "qa_assignment"', 'OUTPUT_ROOT = WORKSPACE / "qa_baselines_retrain"')
                 notebook.cells[5] = existing.cells[5]
             elif len(existing.cells) != len(cells):
                 raise ValueError(f"Cell layout changed in {name}; patch it manually to preserve edits.")
@@ -520,12 +655,18 @@ def main():
                 # On subsequent builds preserve repository, data, and experiment
                 # controls; refresh only the shared installation section.
                 refresh = {2, 3}
-                if name.startswith("02_") and existing.metadata.get("qa_assignment", {}).get("version", 0) < 3:
-                    # The stopping upgrade adds the requested controls and 20/5
-                    # epoch limits, while retaining clone/data/other cells.
-                    refresh.update((7, 12, 13))
-                if name.startswith("01_") and existing.metadata.get("qa_assignment", {}).get("version", 0) < 1:
-                    refresh.update((8, 9, 14))
+                if name.startswith("02_") and existing.metadata.get("qa_assignment", {}).get("version", 0) < 4:
+                    refresh.update((0, *range(6, 14)))
+                    notebook.cells[1] = existing.cells[1]
+                    notebook.cells[1].source = notebook.cells[1].source.replace(
+                        'OUTPUT_ROOT = WORKSPACE / "qa_baselines"',
+                        'OUTPUT_ROOT = WORKSPACE / "qa_baselines_retrain"')
+                if name.startswith("01_") and existing.metadata.get("qa_assignment", {}).get("version", 0) < 2:
+                    refresh.update((0, *range(8, 16)))
+                    notebook.cells[1] = existing.cells[1]
+                    notebook.cells[1].source = notebook.cells[1].source.replace(
+                        'OUTPUT_ROOT = WORKSPACE / "qa_assignment"',
+                        'OUTPUT_ROOT = WORKSPACE / "qa_assignment_retrain"')
                 for index in range(len(cells)):
                     if index not in refresh:
                         notebook.cells[index] = existing.cells[index]
@@ -534,9 +675,11 @@ def main():
         notebook.metadata = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
                              "language_info": {"name": "python", "version": "3.11"}}
         if name.startswith("02_"):
-            notebook.metadata["qa_assignment"] = {"workflow": "seq2seq_baselines", "version": 3}
+            notebook.metadata["qa_assignment"] = {"workflow": "seq2seq_baselines", "version": 4}
+        elif name.startswith("01_"):
+            notebook.metadata["qa_assignment"] = {"workflow": "attention_mamba", "version": 2}
         else:
-            notebook.metadata["qa_assignment"] = {"workflow": "attention_mamba", "version": 1}
+            notebook.metadata["qa_assignment"] = {"workflow": "t5_question_answering", "version": 1}
         nbf.validate(notebook)
         nbf.write(notebook, destination)
         print(destination.relative_to(ROOT))

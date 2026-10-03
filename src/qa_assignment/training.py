@@ -66,6 +66,7 @@ class Trainer:
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, multiplier)
         self.scaler = torch.amp.GradScaler("cuda", enabled=config.precision == "fp16")
         self.state = {"epoch": 0, "next_batch": 0, "global_step": 0, "best_f1": -1.0,
+                      "best_development_loss": None,
                       "history": [], "training_log": [], "examples_seen": 0, "training_seconds": 0.0,
                       "early_stopping": new_stopping_state(),
                       "training_peak_memory": {"allocated_mib": 0.0, "reserved_mib": 0.0}}
@@ -94,6 +95,7 @@ class Trainer:
         self.scaler.load_state_dict(checkpoint["scaler"])
         self.state = checkpoint["state"]
         self.state.setdefault("early_stopping", new_stopping_state(self.state["best_f1"]))
+        self.state.setdefault("best_development_loss", None)
         restore_rng(checkpoint["rng"])
         print(f"Resumed step {self.state['global_step']}; epoch {self.state['epoch'] + 1}, "
               f"next batch {self.state['next_batch']}.")
@@ -107,12 +109,20 @@ class Trainer:
         self.capture_training_memory()
         metrics = evaluate(self.model, self.bundle.development, self.collator, self.bundle.tokenizer,
                            self.device, self.bundle.config.max_output_length, self.config.eval_batch_size,
-                           self.config.precision, self.config.development_limit)
+                           self.config.precision, self.config.development_limit,
+                           include_teacher_forced=True, sample_limit=5)
         metrics.update({"step": self.state["global_step"], "epoch_cursor": self.state["epoch"],
                         "training_seconds": self.state["training_seconds"]})
         self.state["history"].append(metrics)
-        if metrics["f1"] > self.state["best_f1"]:
+        development_loss = metrics.get("teacher_forced_loss")
+        if development_loss is not None and not math.isfinite(development_loss):
+            raise FloatingPointError("Development teacher-forced loss is nonfinite.")
+        tied_f1_better_loss = (metrics["f1"] == self.state["best_f1"] and development_loss is not None and
+                              (self.state["best_development_loss"] is None or
+                               development_loss < self.state["best_development_loss"]))
+        if metrics["f1"] > self.state["best_f1"] or tied_f1_better_loss:
             self.state["best_f1"] = metrics["f1"]
+            self.state["best_development_loss"] = development_loss
             improved_checkpoint = True
         else:
             improved_checkpoint = False
@@ -123,6 +133,12 @@ class Trainer:
         self.save()
         write_json(self.checkpoint_dir / "history.json", self.state["history"])
         print(f"Internal development: EM={metrics['em']:.2f}, F1={metrics['f1']:.2f}")
+        if development_loss is not None:
+            print(f"Teacher-forced loss={development_loss:.4f}; "
+                  f"token accuracy={metrics['teacher_forced_token_accuracy']:.2f}%; "
+                  f"first-token EOS={metrics['first_token_eos_percent']:.2f}%")
+            for sample in metrics["prediction_samples"][:3]:
+                print(f"  {sample['id']}: {sample['prediction']!r}; gold={sample['answers'][0]!r}")
         self.model.train()
         reset_memory(self.device)
 

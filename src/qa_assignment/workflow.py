@@ -96,6 +96,8 @@ def run_experiment(bundle, model_config, train_config, output_root, device="cuda
                "early_stopping": state["early_stopping"],
                "training_peak_memory": state["training_peak_memory"], "selected_step": selected_state["global_step"],
                "best_development_f1": selected_state["best_f1"], "precision": train_config.precision,
+               "selected_development_loss": selected_state.get("best_development_loss"),
+               "checkpoint_selection": "development F1; lower teacher-forced loss breaks exact F1 ties",
                "benchmark": timings, **parameter_counts(model)}
     write_json(result_dir / "summary.json", summary)
     write_json(result_dir / "training_log.json", state["training_log"])

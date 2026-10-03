@@ -7,9 +7,9 @@ from dataclasses import replace
 import nbformat
 
 
-def test_two_kaggle_notebooks_are_valid_and_have_repo_variables():
+def test_three_kaggle_notebooks_are_valid_and_have_repo_variables():
     paths = sorted(Path(__file__).resolve().parents[1].glob("*_kaggle.ipynb"))
-    assert len(paths) == 2
+    assert len(paths) == 3
     for path in paths:
         notebook = nbformat.read(path, as_version=4)
         nbformat.validate(notebook)
@@ -21,29 +21,37 @@ def test_two_kaggle_notebooks_are_valid_and_have_repo_variables():
         combined = "\n".join(cell.source for cell in notebook.cells)
         assert 'REPO_URL = ' in combined
         assert '"git", "clone"' in combined
-        assert 'resume="auto"' in combined
+        if path.name.startswith("03_"):
+            assert "T5Answerer.from_export" in combined
+            assert "install_mamba" not in combined and "run_experiment" not in combined
+        else:
+            assert 'resume="auto"' in combined
 
 
 def test_attention_mamba_notebook_passes_stopping_policy_to_every_run(tmp_path, monkeypatch):
-    from qa_assignment import workflow
+    from qa_assignment import workflow, diagnostics
     from qa_assignment.config import VARIANTS
 
     root = Path(__file__).resolve().parents[1]
     notebook = nbformat.read(root / "01_attention_mamba_kaggle.ipynb", as_version=4)
-    namespace = {"bundle": object(), "OUTPUT_ROOT": tmp_path / "outputs", "DEVICE": "cuda:0",
+    namespace = {"bundle": object(), "collator": object(), "OUTPUT_ROOT": tmp_path / "outputs", "DEVICE": "cuda:0",
                  "REPO_ROOT": root}
     exec(notebook.cells[9].source, namespace)
     calls = []
     def completed_run(bundle, model_config, train_config, output_root, **kwargs):
-        assert train_config.epochs == 20
+        assert train_config.epochs == 5
         assert train_config.eval_every_steps == 1000
-        assert train_config.early_stopping_patience == 5
+        assert train_config.early_stopping_patience == 0
         assert train_config.early_stopping_min_delta == 0.1
-        assert train_config.early_stopping_min_steps == 5000
+        assert train_config.early_stopping_min_steps == 0
+        assert train_config.warmup_fraction == .01
         assert kwargs["resume"] == "auto"
         calls.append((model_config.variant, train_config.seed))
         return {"variant": model_config.variant, "early_stopping": {"stopped": True}}
     monkeypatch.setattr(workflow, "run_experiment", completed_run)
+    monkeypatch.setattr(diagnostics, "run_learning_diagnostics", lambda *args: {
+        variant: {"overfit_demonstrated": True} for variant in VARIANTS})
+    exec(notebook.cells[13].source, namespace)
     # Exercise the actual notebook loop; a stopped run must let subsequent runs proceed.
     exec(notebook.cells[15].source, namespace)
     assert calls == [(variant, seed) for variant in VARIANTS for seed in namespace["SEEDS"]]
@@ -123,9 +131,11 @@ def test_baseline_notebook_runs_all_four_variants_without_mamba(tiny_bundle, tmp
                  "display": lambda *args: None}
     exec(notebook.cells[7].source, namespace)
     assert tuple(namespace["MODEL_VARIANTS"]) == BASELINE_VARIANTS
-    assert namespace["SCRATCH_TRAIN_CONFIG"].epochs == 20
+    assert namespace["SCRATCH_TRAIN_CONFIG"].epochs == 5
     assert namespace["T5_TRAIN_CONFIG"].epochs == 5
-    assert all(config.early_stopping_patience == 5 for config in namespace["TRAIN_CONFIGS"].values())
+    assert all(namespace["TRAIN_CONFIGS"][v].early_stopping_patience == 0
+               for v in BASELINE_VARIANTS if v != "t5_small")
+    assert namespace["T5_TRAIN_CONFIG"].early_stopping_patience == 5
     assert all(config.eval_every_steps == 1000 for config in namespace["TRAIN_CONFIGS"].values())
     for variant in BASELINE_VARIANTS:
         namespace["MODEL_CONFIGS"][variant] = replace(namespace["MODEL_CONFIGS"][variant],
@@ -139,7 +149,18 @@ def test_baseline_notebook_runs_all_four_variants_without_mamba(tiny_bundle, tmp
     original_pilot = runtime.run_pilot
     monkeypatch.setattr(runtime, "run_pilot", lambda *args, **kwargs: original_pilot(
         *args, **{**kwargs, "steps": 3}))
-    for index in (9, 11, 13, 15, 16):
+    from qa_assignment import diagnostics
+    original_diagnostics = diagnostics.run_learning_diagnostics
+    monkeypatch.setattr(diagnostics, "run_learning_diagnostics", lambda bundle, models, collator, root, device, config:
+        original_diagnostics(bundle, models, collator, root, device,
+                             replace(config, examples=4, steps=2, eval_every_steps=1)))
+    for index in (9, 11):
+        exec(notebook.cells[index].source, namespace)
+    assert namespace["REQUIRE_DIAGNOSTIC_PASS"]
+    # This integration test uses two-update diagnostics. Explicitly opt into main
+    # training despite their expected failure; gate behavior is tested separately.
+    namespace["REQUIRE_DIAGNOSTIC_PASS"] = False
+    for index in (13, 15, 16):
         exec(notebook.cells[index].source, namespace)
     assert [summary["variant"] for summary in namespace["summaries"]] == list(BASELINE_VARIANTS)
     assert namespace["table"].variant.tolist() == list(BASELINE_VARIANTS)

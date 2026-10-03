@@ -960,3 +960,34 @@ runs. Full training remains subject to Kaggle session and GPU limits.
 The revised question is: **Under the declared shared QA data and measured training
 recipes, how do RNN, LSTM, attention encoder-decoders, and pretrained T5 differ in
 answer quality, training cost, inference latency/throughput, and memory?**
+
+## Retraining and diagnostic revision (2026-10-03)
+
+The completed runs showed zero QA F1 for all scratch variants, including attention
+in both notebooks. The previous 20-epoch schedule stopped after 1.81 epochs and used
+approximately one epoch for warmup. The following settings supersede the scratch
+schedule above; the architecture definitions and shared full-data contract stay the same.
+
+- Both training notebooks now run enabled memorization diagnostics on 16 training
+  examples from different articles, up to 1,500 steps, checking every 100 steps.
+  Diagnostic settings are explicitly easier: constant LR 3e-3, FP32, no weight decay,
+  no dropout, no warmup, and no patience stopping. Generated F1 ≥95 passes the check.
+  Report predictions, token loss/accuracy, immediate EOS, gradient paths, and curves.
+  Discard diagnostic weights. Failed variants skip full training unless overridden.
+- Scratch retraining uses five epochs, LR 3e-4, 1% warmup, and disabled early stopping.
+  T5 retains five epochs, LR 1e-4, 5% warmup, and its previous development-F1 stopping.
+  Keep all existing metrics and full resumable checkpoint folders per variant/seed.
+- Development evaluation additionally records teacher-forced loss, token accuracy,
+  first-token EOS rate, and generated samples. Best development F1 selects a checkpoint;
+  lower development token loss breaks exact F1 ties. Official validation never selects it.
+- An optional 2,000-example attention pilot uses 256 internal-development examples
+  for a separate small generalization check, without official validation or benchmarks.
+- Fresh output roots are `qa_assignment_retrain/` and `qa_baselines_retrain/` under
+  `/kaggle/working`. Old stopped runs are incompatible with the new settings/source.
+- A third notebook, `03_t5_question_answering_kaggle.ipynb`, loads the selected T5
+  `hf_export/` locally and answers editable questions about a supplied passage. The
+  previous successful T5 export can be used immediately, with no retraining required.
+
+Memorization is a prerequisite for diagnosing the common recipe, not evidence of
+held-out QA performance. Reassess scratch learning and generalization before making
+architecture claims; original T5 has a large parameter and prior-training advantage.

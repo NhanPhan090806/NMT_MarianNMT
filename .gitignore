@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest_*/
 *.egg-info/
 .ipynb_checkpoints/
 .venv/
@@ -10,4 +11,5 @@ checkpoints/
 results/
 *.pt
 *.zip
-
+analysis/
+qa_baseline_artifacts/

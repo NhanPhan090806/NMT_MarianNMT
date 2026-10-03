@@ -1,11 +1,13 @@
 # Generative QA assignment: RNN, LSTM, attention, Mamba, and T5
 
 Python files contain data preparation, model definitions, training, checkpointing,
-evaluation, and profiling. Two Kaggle notebooks provide the interfaces:
+evaluation, and profiling. Three Kaggle notebooks provide the interfaces:
 
 - `01_attention_mamba_kaggle.ipynb`: all four scratch encoder/decoder variants.
 - `02_t5_transfer_learning_kaggle.ipynb`: **RNN → LSTM → attention → T5**, all
   encoder-decoder models, with no Mamba dependency. The existing filename is retained.
+- `03_t5_question_answering_kaggle.ipynb`: load an exported T5 and ask questions
+  about your own passage; no training, dataset download, or Mamba installation.
 
 `plan.md` records the original design and the revised notebook-2 scope.
 
@@ -17,10 +19,10 @@ evaluation, and profiling. Two Kaggle notebooks provide the interfaces:
 3. Set `REPO_URL = ""` to your actual repository URL. `REPO_REF` accepts a branch, tag,
    or commit SHA. Use the same commit in both notebooks. If these files live inside
    a larger repository, set `SOURCE_SUBDIR` to this assignment's relative directory.
-4. Run clone/setup, data preparation, configuration, and the pilot cells.
-5. Inspect the pilot results, then run the training cell. Training is enabled by
-   default, matching the supplied sample's workflow.
-6. Download `qa_assignment_artifacts.zip` or retain the Kaggle notebook outputs.
+4. Run clone/setup, data preparation, configuration, pilots, and the learning diagnostic.
+5. Review generated diagnostic answers, then run training. Failed scratch diagnostics
+   skip that variant by default; the next variant and T5 can still run.
+6. Download the retraining artifact archive or retain the Kaggle notebook outputs.
 
 The notebooks use a single GPU (`cuda:0`). They do not implement distributed training.
 Both notebooks run variants sequentially so optimizer states from one
@@ -50,7 +52,7 @@ hybrid architectures, not an attention-free encoder-decoder or a long-context sc
 
 Default scratch models use width 128 and two layers per component. Increase dimensions
 only after the pilot; small models and no pretraining can yield low QA scores. The
-optional tiny-subset overfit diagnostic checks learning separately from kernel compatibility.
+enabled tiny-subset overfit diagnostic checks learning separately from kernel compatibility.
 One-seed results are exploratory. T5 uses a separately declared fine-tuning recipe and
 is identified as a transfer-learning reference.
 
@@ -68,33 +70,33 @@ self-attention and masked cross-attention. T5 uses Hugging Face pretrained T5-sm
 All four share the same prepared data, tokenizer, greedy generation, development
 selection, EM/F1 implementation, and latency/throughput/memory measurement pipeline.
 The three scratch models default to width 128, two layers per component, a maximum of
-20 epochs, and learning rate 3e-4. T5 defaults to a maximum of five epochs and learning rate 1e-4. Common
+five epochs, 1% warmup, no early stopping, and learning rate 3e-4. T5 defaults to a maximum of five epochs and learning rate 1e-4. Common
 FP32 precision and effective batch size 16 are the initial settings. The notebook
-provides a separate resource pilot for every model and an optional scratch overfit
+provides a separate resource pilot for every model and an enabled scratch overfit
 diagnostic. Change the configurations before starting full runs if the pilots show
 the combined budget is excessive.
 
-Notebook 2 enables early stopping for all four models using **internal-development
-F1**, evaluated every 1,000 optimizer steps and at epoch end. Default patience is five
-checks without an improvement greater than 0.1 F1 points on the 0–100 scale; failures
-only count from step 5,000 onward. Each model has independent patience. Set
-`EARLY_STOPPING_PATIENCE=0` to disable it or edit the named controls before training.
-Training loss remains logged, but a low training-loss value alone does not show that
-validation QA performance has peaked. `best.pt` always retains the highest observed
-development F1, even when the improvement is smaller than the stopping threshold.
-Final validation and all benchmarks use that checkpoint after stopping. The stopping
-state, counters, and stop step are saved in `last.pt`, development history, and result
-summaries; already-stopped runs skip further training when resumed.
+Scratch runs in both notebooks disable early stopping and reduce the 20-epoch
+maximum to five epochs. The shorter 1% warmup is about 248 steps on the current full
+dataset, rather than the previous 4,966. T5 retains 5% warmup and independent
+development-F1 stopping: patience five checks, min_delta 0.1 F1 points, minimum step
+5,000. All models evaluate internal development every 1,000 optimizer steps and
+at epoch end. Histories now include teacher-forced loss, token accuracy, first-token
+EOS rate, and sample generated answers. Highest development F1 selects `best.pt`;
+lower development loss breaks exact F1 ties. This avoids retaining the first
+checkpoint solely because every F1 is zero, but does not make a zero-F1 model useful.
+The existing checkpoint intervals, full optimizer/RNG resumption, final normalized
+EM/F1, timing, memory, and parameter metrics remain available.
 
 Start fresh for the updated notebook: leave `RESTORE_FROM=None` and use an empty
 output directory. To resume these new runs later, keep the complete checkpoint
 folders, identical settings, and the same source commit. The shared trainer's default
-keeps early stopping disabled, while both notebook interfaces enable the declared
-policy. Notebook 1 now uses the same early-stopping controls for all four
-attention/Mamba variants and a maximum of 20 epochs, with independent patience per
-variant/seed. Its artifacts remain under `/kaggle/working/qa_assignment/`.
+keeps early stopping disabled. Notebook 1 applies the same scratch recipe and
+diagnostic policy to all four attention/Mamba variants. Its fresh artifacts go to
+`/kaggle/working/qa_assignment_retrain/`; old stopped runs cannot resume with the new
+source/settings. Attach only new matching checkpoint folders when resuming these runs.
 
-Artifacts default to `/kaggle/working/qa_baselines/`, with checkpoint subfolders
+Notebook 2 artifacts default to `/kaggle/working/qa_baselines_retrain/`, with checkpoint subfolders
 `rnn_rnn/seed_42/`, `lstm_lstm/seed_42/`, `attn_attn/seed_42/`, and `t5_small/seed_42/`.
 Its ordered `comparison.csv` and combined `seq2seq_baselines_comparison.png` include
 all four models, while labeling T5 as pretrained and recording epochs/learning rates.
@@ -102,11 +104,53 @@ Parameter counts differ; this comparison measures these declared recipes, and do
 not isolate architecture from the benefit of pretraining. Notebook 1 retains the
 original Mamba experiments.
 
-Push the source changes and upload the updated notebook 2 to Kaggle. Stop the ongoing
-Mamba installation and start a fresh GPU session for notebook 2; run it from the top.
-The filled repository URL is preserved. No Mamba or causal-conv1d build is invoked by
-notebook 2. Its archive is `qa_baselines_artifacts.zip`; set `RESTORE_FROM` to the saved
-baseline output folder when resuming. Use the same source revision and settings.
+Push the source changes and upload the updated training notebook to a fresh Kaggle
+session. The filled repository URL is preserved. Notebook 2 invokes no Mamba build.
+Its archive is `qa_baselines_retrain_artifacts.zip`; notebook 1 uses
+`qa_assignment_retrain_artifacts.zip`. Use the same source revision and settings
+when restoring matching retraining artifacts.
+
+### Learning diagnostic and optional generalization pilot
+
+`RUN_OVERFIT_DIAGNOSTIC=True` runs scratch attention first, then other scratch
+variants. `DiagnosticConfig` defaults to 16 examples from different training articles,
+1,500 maximum steps, checks every 100 steps, constant LR 3e-3, zero weight decay,
+disabled dropout, and FP32. The tiny fixed set is accumulated in microbatches of four.
+There is no warmup or patience stopping; it ends at its budget or generated F1 ≥95.
+These easier memorization settings are recorded separately from the main recipe.
+
+Each variant saves `results/diagnostics/<variant>/seed_42/report.json`, all diagnostic
+predictions/references, and a plot. Reports include losses, generated answers, token
+accuracy, EOS rate, and pre-clipping gradient norms for embeddings, encoder, decoder,
+output weights, and cross-attention where present. They use training examples only;
+diagnostic weights are discarded. Main training starts from fresh weights.
+
+`REQUIRE_DIAGNOSTIC_PASS=True` skips main training for a failed scratch variant.
+Change the diagnostic settings and rerun to investigate. An explicit
+`REQUIRE_DIAGNOSTIC_PASS=False` allows training anyway. T5 bypasses this scratch gate.
+If all scratch variants fail, their diagnostic artifacts still survive in the archive.
+The diagnostic is a learning check, not a promise of good held-out QA scores.
+
+`RUN_GENERALIZATION_PILOT=True` optionally runs a fresh attention model on 2,000
+training examples for three epochs with the main recipe and 256 internal-development
+examples. Separate reports/checkpoints go under `results/generalization_diagnostic/`.
+It does not evaluate official validation or reuse its weights in the main run.
+
+### Ask questions with your saved T5
+
+Attach your earlier successful notebook-2 output or a new output as a Kaggle input.
+In notebook 3, set `REPO_URL` and run setup. Set `MODEL_DIR` to its
+`checkpoints/t5_small/seed_42/hf_export/` folder; the notebook lists attached exports
+and automatically selects one if there is exactly one. Use the exported model and
+tokenizer together. Loading needs no weight download and works on GPU or CPU.
+
+Edit `PASSAGE` and `QUESTION`, then rerun the answer cell. A question list and optional
+typed input loop reuse the loaded model. The loop defaults off for Kaggle batch runs.
+Answers can be saved to `/kaggle/working/t5_qa_test/answers.json`. Input formatting and
+the saved sequence caps match training; long inputs are rejected rather than silently
+truncated. This is passage-based QA, not open-domain chat. SQuAD 1.1 did not train the
+model to abstain when the passage lacks the requested answer. Generation uses the
+standard [Transformers T5 API](https://huggingface.co/docs/transformers/v4.57.1/en/model_doc/t5).
 
 ## Dependencies and Mamba compatibility
 
@@ -156,7 +200,7 @@ References: [Mamba pinned release](https://pypi.org/project/mamba-ssm/2.2.6.post
 ## Outputs and checkpoint resumption
 
 ```text
-/kaggle/working/qa_assignment/
+/kaggle/working/qa_assignment_retrain/
   data/
     raw/train-v1.1.json
     raw/dev-v1.1.json
@@ -167,8 +211,8 @@ References: [Mamba pinned release](https://pypi.org/project/mamba-ssm/2.2.6.post
       validation.jsonl
       tokenizer/
   checkpoints/
-    rnn_rnn/seed_42/  # notebook 2, under qa_baselines/
-    lstm_lstm/seed_42/ # notebook 2, under qa_baselines/
+    rnn_rnn/seed_42/  # notebook 2, under qa_baselines_retrain/
+    lstm_lstm/seed_42/ # notebook 2, under qa_baselines_retrain/
     attn_attn/seed_42/
     mamba_attn/seed_42/
     attn_mamba/seed_42/
@@ -218,7 +262,8 @@ interruptions; this cannot rescue files from a process killed by the platform.
 ## Measurements
 
 Training normalizes accumulated gradients by all valid target tokens, including the
-final partial batch. Best checkpoints use internal-development F1. Official validation
+final partial batch. Best checkpoints use internal-development F1, with development
+token loss breaking exact ties. Official validation
 is scored after training/selection; the predictions and all references are saved.
 
 Benchmarks warm up, synchronize CUDA timing boundaries, and repeat three times.
@@ -244,13 +289,13 @@ on a Linux CUDA environment with installed extensions.
 & 'C:\Users\ADMIN\ai_venv\Scripts\python.exe' scripts/build_notebooks.py
 ```
 
-The notebook generator is optional; both notebooks are already committed as plain
+The notebook generator is optional; all three notebooks are provided as plain
 `.ipynb` files with no execution outputs. Full SQuAD training and real Mamba kernel
 execution still require running the notebooks on Kaggle.
 
 The generator writes notebooks at the repository root. Its one-time notebook-2
 migration preserves repository URL/ref and data controls while replacing the old
-T5-only experiment cells with the new scope. Its stopping upgrade refreshes the
-training cells to add stopping and the requested 20/5 epoch limits. Notebook 1 has
-its own one-time stopping-control upgrade. Subsequent builds
+T5-only experiment cells with the new scope. Its diagnostic upgrade refreshes the
+training/diagnostic cells for this five-epoch scratch retraining workflow while
+preserving clone and data settings. Notebook 1 has its own migration. Subsequent builds
 preserve experiment controls and refresh only the shared installation section.

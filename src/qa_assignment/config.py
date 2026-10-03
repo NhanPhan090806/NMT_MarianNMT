@@ -112,3 +112,23 @@ class BenchmarkConfig:
         if min(self.examples, self.repeats, self.throughput_batch_size,
                self.fixed_output_tokens) < 1 or self.warmup_runs < 0:
             raise ValueError("Invalid benchmark configuration.")
+
+
+@dataclass(frozen=True)
+class DiagnosticConfig:
+    examples: int = 16
+    steps: int = 1500
+    micro_batch_size: int = 4
+    eval_every_steps: int = 100
+    learning_rate: float = 3e-3
+    target_f1: float = 95.0
+    seed: int = 42
+    disable_dropout: bool = True
+
+    def __post_init__(self):
+        if min(self.examples, self.steps, self.micro_batch_size, self.eval_every_steps) < 1:
+            raise ValueError("Diagnostic counts must be positive.")
+        if not math.isfinite(self.learning_rate) or self.learning_rate <= 0:
+            raise ValueError("Diagnostic learning rate must be finite and positive.")
+        if not math.isfinite(self.target_f1) or not 0 < self.target_f1 <= 100:
+            raise ValueError("Diagnostic target F1 must be in (0, 100].")
