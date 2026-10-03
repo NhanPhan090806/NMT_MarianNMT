@@ -1,181 +1,91 @@
+"""Validate and execute the actual new notebook orchestration without network/GPU."""
+
 import ast
-from pathlib import Path
-import subprocess
-import sys
 from dataclasses import replace
+from pathlib import Path
 
 import nbformat
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def tagged(notebook, name):
+    return next(c.source for c in notebook.cells if name in c.metadata.get("tags", []))
 
 
 def test_training_and_local_testing_notebooks_are_valid():
-    paths = sorted(Path(__file__).resolve().parents[1].glob("0*_*.ipynb"))
-    assert len(paths) == 3
+    expected = {"01_nmt_scratch_kaggle.ipynb", "02_nmt_pretrained_kaggle.ipynb",
+                "03_t5_question_answering_local.ipynb"}
+    paths = sorted(ROOT.glob("0*_*.ipynb"))
+    assert {p.name for p in paths} == expected
     for path in paths:
         notebook = nbformat.read(path, as_version=4)
         nbformat.validate(notebook)
         for cell in notebook.cells:
             if cell.cell_type == "code":
                 ast.parse(cell.source)
-                assert cell.outputs == []
-                assert cell.execution_count is None
-        combined = "\n".join(cell.source for cell in notebook.cells)
-        if path.name.startswith("03_"):
-            assert path.name.endswith("_local.ipynb")
-            assert "T5Answerer.from_export" in combined
-            assert "install_mamba" not in combined and "run_experiment" not in combined
-            assert "/kaggle/" not in combined and '"git", "clone"' not in combined
-            assert "ai_venv" in combined and "PROJECT_DIR" in combined
+                if not path.name.startswith("03"):
+                    assert cell.outputs == [] and cell.execution_count is None
+        text = "\n".join(c.source for c in notebook.cells)
+        if path.name.startswith("03"):
+            assert "T5Answerer.from_export" in text and "models/t5_small" in text
+            assert "/kaggle/" not in text
         else:
-            assert 'REPO_URL = ' in combined
-            assert '"git", "clone"' in combined
-            assert 'resume="auto"' in combined
+            assert '"git", "clone"' in text and 'resume="auto"' in text
+            assert "install_mamba" not in text and "require_mamba_kernels" not in text
+            assert "DataConfig(max_train_examples=25000" in text
 
 
-def test_attention_mamba_notebook_passes_stopping_policy_to_every_run(tmp_path, monkeypatch):
-    from qa_assignment import workflow, diagnostics
-    from qa_assignment.config import VARIANTS
-
-    root = Path(__file__).resolve().parents[1]
-    notebook = nbformat.read(root / "01_attention_mamba_kaggle.ipynb", as_version=4)
-    namespace = {"bundle": object(), "collator": object(), "OUTPUT_ROOT": tmp_path / "outputs", "DEVICE": "cuda:0",
-                 "REPO_ROOT": root}
-    exec(notebook.cells[9].source, namespace)
+def test_scratch_notebook_order_capacity_stopping_and_diagnostic_gate(tmp_path, monkeypatch):
+    from nmt_assignment import workflow
+    from nmt_assignment.config import ModelConfig, TrainConfig
+    notebook = nbformat.read(ROOT / "01_nmt_scratch_kaggle.ipynb", as_version=4)
     calls = []
-    def completed_run(bundle, model_config, train_config, output_root, **kwargs):
-        assert train_config.epochs == 5
-        assert train_config.eval_every_steps == 1000
-        assert train_config.early_stopping_patience == 0
-        assert train_config.early_stopping_min_delta == 0.1
-        assert train_config.early_stopping_min_steps == 0
-        assert train_config.warmup_fraction == .01
+    def completed(bundle, model_config, train_config, root, **kwargs):
+        calls.append(model_config.stage)
+        assert train_config.early_stopping_patience == 3 and train_config.epochs == 8
         assert kwargs["resume"] == "auto"
-        calls.append((model_config.variant, train_config.seed))
-        return {"variant": model_config.variant, "early_stopping": {"stopped": True}}
-    monkeypatch.setattr(workflow, "run_experiment", completed_run)
-    monkeypatch.setattr(diagnostics, "run_learning_diagnostics", lambda *args: {
-        variant: {"overfit_demonstrated": True} for variant in VARIANTS})
-    exec(notebook.cells[13].source, namespace)
-    # Exercise the actual notebook loop; a stopped run must let subsequent runs proceed.
-    exec(notebook.cells[15].source, namespace)
-    assert calls == [(variant, seed) for variant in VARIANTS for seed in namespace["SEEDS"]]
-    assert len(namespace["summaries"]) == len(calls)
+        return {"stage": model_config.stage, "test": {"bleu": 1, "chrf": 2}}
+    namespace = {"ModelConfig": ModelConfig, "TrainConfig": TrainConfig, "replace": replace,
+                 "bundle": object(), "OUTPUT_ROOT": tmp_path, "DEVICE": "cpu", "REPO_ROOT": ROOT,
+                 "run_experiment": completed, "archive_translation_outputs": lambda root: root / "archive.zip"}
+    exec(tagged(notebook, "configuration"), namespace)
+    assert tuple(namespace["STAGE_ORDER"]) == ("rnn", "lstm_attention", "transformer")
+    assert [namespace["MODEL_CONFIGS"][s].d_model for s in namespace["STAGE_ORDER"]] == [128, 192, 256]
+    namespace["diagnostics"] = {s: {"overfit_demonstrated": s != "rnn"} for s in namespace["STAGE_ORDER"]}
+    exec(tagged(notebook, "train"), namespace)
+    assert calls == ["lstm_attention", "transformer"]
 
 
-def test_setup_exposes_sources_in_an_already_running_interpreter(tmp_path):
-    """Reproduce the logged failure without installing anything into the real venv."""
-    root = Path(__file__).resolve().parents[1]
-    for name in ("01_attention_mamba_kaggle.ipynb", "02_t5_transfer_learning_kaggle.ipynb"):
-        notebook = nbformat.read(root / name, as_version=4)
-        tree = ast.parse(notebook.cells[3].source)
-        # Exercise pip and ALL helper imports, stopping before GPU selection.
-        prefix = []
-        for node in tree.body:
-            if isinstance(node, ast.If) and "torch.cuda.is_available" in ast.unparse(node.test):
-                break
-            prefix.append(node)
-        setup_source = ast.unparse(ast.Module(body=prefix, type_ignores=[]))
-        script = '''
-import importlib.util
-from pathlib import Path
-import subprocess
-import sys
-
-REPO_ROOT = Path(sys.argv[1])
-mock_site = Path(sys.argv[2])
-mock_site.mkdir(exist_ok=True)
-calls = []
-def fake_install(command, **kwargs):
-    calls.append(command)
-    # Simulate pip publishing an editable-install .pth AFTER interpreter startup.
-    (mock_site / 'qa_assignment.pth').write_text(str(REPO_ROOT / 'src'), encoding='utf-8')
-subprocess.run = fake_install
-assert importlib.util.find_spec('qa_assignment') is None
-exec(sys.argv[3])
-assert len(calls) == 2
-assert Path(qa_assignment.__file__).resolve() == REPO_ROOT / 'src' / 'qa_assignment' / '__init__.py'
-print('Live-kernel setup passed')
-'''
-        result = subprocess.run([sys.executable, "-I", "-X", "utf8", "-c", script,
-                                 str(root), str(tmp_path), setup_source],
-                                capture_output=True, text=True, encoding="utf-8", timeout=90)
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert "Live-kernel setup passed" in result.stdout
+def test_pretrained_notebook_recipe_and_restoration_controls():
+    notebook = nbformat.read(ROOT / "02_nmt_pretrained_kaggle.ipynb", as_version=4)
+    text = tagged(notebook, "configuration")
+    assert 'stage="marian_en_vi"' in text
+    assert "epochs=3" in text and "learning_rate=2e-5" in text
+    assert "early_stopping_patience=2" in text and "bundle.for_pretrained()" in text
+    assert "RESTORE_FROM" in tagged(notebook, "setup")
+    assert "PyTorch >=2.6" in text
 
 
-def test_baseline_notebook_runs_all_four_variants_without_mamba(tiny_bundle, tmp_path, monkeypatch):
-    """Execute the actual notebook orchestration on tiny data, without network calls."""
-    import json
-    import matplotlib
-    from transformers import T5Config, T5ForConditionalGeneration
-    from qa_assignment import runtime
-    from qa_assignment.config import BASELINE_VARIANTS, BenchmarkConfig
-    from qa_assignment.data import QACollator
-
-    matplotlib.use("Agg")
-    root = Path(__file__).resolve().parents[1]
-    notebook = nbformat.read(root / "02_t5_transfer_learning_kaggle.ipynb", as_version=4)
-    combined = "\n".join(cell.source for cell in notebook.cells if cell.cell_type == "code")
-    assert "install_mamba" not in combined and "require_mamba_kernels" not in combined
-    # A Mamba dependency on any notebook-2 execution path must fail this test.
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Baseline notebook must not load or install Mamba kernels")
-    monkeypatch.setattr(runtime, "require_mamba_kernels", forbidden)
-    monkeypatch.setattr(runtime, "install_mamba", forbidden)
-    hf_config = T5Config(vocab_size=32, d_model=16, d_ff=32, d_kv=8, num_layers=1,
-                         num_decoder_layers=1, num_heads=2, dropout_rate=0,
-                         pad_token_id=0, eos_token_id=1, decoder_start_token_id=0)
-    monkeypatch.setattr(T5ForConditionalGeneration, "from_pretrained",
-                        lambda *args, **kwargs: T5ForConditionalGeneration(hf_config))
-    def save_tokenizer(directory):
-        (Path(directory) / "tokenizer_config.json").write_text('{}', encoding="utf-8")
-    monkeypatch.setattr(tiny_bundle.tokenizer, "save_pretrained", save_tokenizer, raising=False)
-    namespace = {"bundle": tiny_bundle, "collator": QACollator(tiny_bundle.tokenizer, tiny_bundle.config),
-                 "OUTPUT_ROOT": tmp_path / "qa_baselines", "DEVICE": "cpu", "REPO_ROOT": None,
-                 "display": lambda *args: None}
-    exec(notebook.cells[7].source, namespace)
-    assert tuple(namespace["MODEL_VARIANTS"]) == BASELINE_VARIANTS
-    assert namespace["SCRATCH_TRAIN_CONFIG"].epochs == 5
-    assert namespace["T5_TRAIN_CONFIG"].epochs == 5
-    assert all(namespace["TRAIN_CONFIGS"][v].early_stopping_patience == 0
-               for v in BASELINE_VARIANTS if v != "t5_small")
-    assert namespace["T5_TRAIN_CONFIG"].early_stopping_patience == 5
-    assert all(config.eval_every_steps == 1000 for config in namespace["TRAIN_CONFIGS"].values())
-    for variant in BASELINE_VARIANTS:
-        namespace["MODEL_CONFIGS"][variant] = replace(namespace["MODEL_CONFIGS"][variant],
-            d_model=16, encoder_layers=1, decoder_layers=1, heads=2, feedforward_dim=32, dropout=0)
-        namespace["TRAIN_CONFIGS"][variant] = replace(namespace["TRAIN_CONFIGS"][variant],
-            epochs=1, micro_batch_size=2, accumulation_steps=2, eval_batch_size=2,
-            save_every_steps=1, log_every_steps=1)
-    namespace["BENCHMARK_CONFIG"] = BenchmarkConfig(examples=2, repeats=1, warmup_runs=1,
-        throughput_batch_size=2, fixed_output_tokens=3)
-    # Only shorten the test pilot; execute the notebook's actual model loops.
-    original_pilot = runtime.run_pilot
-    monkeypatch.setattr(runtime, "run_pilot", lambda *args, **kwargs: original_pilot(
-        *args, **{**kwargs, "steps": 3}))
-    from qa_assignment import diagnostics
-    original_diagnostics = diagnostics.run_learning_diagnostics
-    monkeypatch.setattr(diagnostics, "run_learning_diagnostics", lambda bundle, models, collator, root, device, config:
-        original_diagnostics(bundle, models, collator, root, device,
-                             replace(config, examples=4, steps=2, eval_every_steps=1)))
-    for index in (9, 11):
-        exec(notebook.cells[index].source, namespace)
-    assert namespace["REQUIRE_DIAGNOSTIC_PASS"]
-    # This integration test uses two-update diagnostics. Explicitly opt into main
-    # training despite their expected failure; gate behavior is tested separately.
-    namespace["REQUIRE_DIAGNOSTIC_PASS"] = False
-    for index in (13, 15, 16):
-        exec(notebook.cells[index].source, namespace)
-    assert [summary["variant"] for summary in namespace["summaries"]] == list(BASELINE_VARIANTS)
-    assert namespace["table"].variant.tolist() == list(BASELINE_VARIANTS)
-    assert namespace["table"].pretrained.tolist() == [False, False, False, True]
-    for variant in BASELINE_VARIANTS:
-        checkpoint = namespace["OUTPUT_ROOT"] / "checkpoints" / variant / "seed_42"
-        assert (checkpoint / "last.pt").is_file() and (checkpoint / "best.pt").is_file()
-        results = namespace["OUTPUT_ROOT"] / "results" / variant / "seed_42"
-        summary = json.loads((results / "summary.json").read_text(encoding="utf-8"))
-        assert summary["validation"]["examples"] == 2
-        assert summary["benchmark"]["fixed_workload"]["measurements"][0]["mean_generated_tokens"] == 3
-    assert (namespace["OUTPUT_ROOT"] / "checkpoints" / "t5_small" / "seed_42" /
-            "hf_export" / "config.json").is_file()
-    assert (namespace["OUTPUT_ROOT"] / "results" / "seq2seq_baselines_comparison.png").is_file()
-    assert namespace["archive_path"].is_file()
+def test_generator_preserves_user_controls_and_never_edits_qa(tmp_path, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("nmt_generator", ROOT / "scripts" / "build_nmt_notebooks.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    qa = tmp_path / "03_t5_question_answering_local.ipynb"
+    qa.write_bytes(b"user-owned notebook bytes")
+    module.main()
+    path = tmp_path / "01_nmt_scratch_kaggle.ipynb"
+    notebook = nbformat.read(path, as_version=4)
+    config = next(c for c in notebook.cells if "configuration" in c.metadata.get("tags", []))
+    config.source = config.source.replace("epochs=8", "epochs=6")
+    notebook.cells.append(nbformat.v4.new_code_cell('print("custom translation")'))
+    nbformat.write(notebook, path)
+    module.main()
+    refreshed = nbformat.read(path, as_version=4)
+    assert "epochs=6" in tagged(refreshed, "configuration")
+    assert refreshed.cells[-1].source == 'print("custom translation")'
+    assert qa.read_bytes() == b"user-owned notebook bytes"
