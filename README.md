@@ -144,12 +144,12 @@ Open `03_t5_question_answering_local.ipynb` in VS Code or Jupyter and select
 folder; `PROJECT_DIR` can be set explicitly if the notebook server starts elsewhere.
 The notebook imports local helpers without cloning or installing packages.
 
-`MODEL_DIR` defaults to your existing successful export at
-`qa_baseline_artifacts/rnn_lstm_attn_t5/checkpoints/t5_small/seed_42/hf_export`.
-Choose another downloaded `hf_export/` folder to test a later model. Relative paths
-resolve against `PROJECT_DIR`; absolute Windows paths work too. An empty setting
-discovers exports under local artifact/output folders and selects one if there is
-exactly one. Loading is offline and works on CUDA or CPU.
+`MODEL_DIR` defaults to `models/t5_small/`, the single retained best T5 model.
+It contains the exported weights, tokenizer, and `qa_config.json` with the saved
+input/output limits. Relative paths resolve against `PROJECT_DIR`; absolute Windows
+paths work too. Loading is offline and works on CUDA or CPU. Historical runs,
+duplicate checkpoints, logs, and analysis outputs have been removed. Model files
+are ignored by Git; keep this folder locally when pushing the source to GitHub.
 
 Edit `PASSAGE` and `QUESTION`, then rerun the answer cell. A question list and optional
 typed input loop reuse the loaded model. The loop defaults off for automated runs.

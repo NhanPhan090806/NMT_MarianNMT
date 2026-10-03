@@ -141,3 +141,16 @@ def test_t5_export_discovery_loading_prompt_limits_and_reuse(local_t5_export, mo
     with pytest.raises(ValueError, match="max_new_tokens"):
         qa.answer("Who?", "Denver won.", max_new_tokens=7)
     assert len(calls) == 3  # Invalid inputs never reach generation.
+
+
+def test_t5_portable_export_loads_its_own_limits_without_run_artifacts(local_t5_export):
+    from qa_assignment.inference import T5Answerer
+
+    (local_t5_export / "qa_config.json").write_text(json.dumps({
+        "max_input_length": 24, "max_output_length": 4}), encoding="utf-8")
+    # Folder-local settings take precedence during migration, and survive cleanup.
+    qa = T5Answerer.from_export(local_t5_export, device="cpu")
+    assert (qa.max_input_length, qa.max_output_length) == (24, 4)
+    (local_t5_export.parent / "data_manifest.json").unlink()
+    qa = T5Answerer.from_export(local_t5_export, device="cpu")
+    assert (qa.max_input_length, qa.max_output_length) == (24, 4)

@@ -48,13 +48,16 @@ class T5Answerer:
 
         directory = Path(directory).expanduser().resolve()
         if not (directory / "config.json").is_file():
-            raise FileNotFoundError(f"Set MODEL_DIR to the exported hf_export/ folder: {directory}")
+            raise FileNotFoundError(f"Set MODEL_DIR to the folder containing the model and tokenizer: {directory}")
         model_config = json.loads((directory / "config.json").read_text(encoding="utf-8"))
         if model_config.get("model_type") != "t5":
             raise ValueError("The selected export is not a T5 model.")
         data_config = {}
+        qa_config = directory / "qa_config.json"
         manifest = directory.parent / "data_manifest.json"
-        if manifest.is_file():
+        if qa_config.is_file():
+            data_config = json.loads(qa_config.read_text(encoding="utf-8"))
+        elif manifest.is_file():
             data_config = json.loads(manifest.read_text(encoding="utf-8"))["contract"]["config"]
         tokenizer = AutoTokenizer.from_pretrained(directory, local_files_only=True)
         model = T5ForConditionalGeneration.from_pretrained(directory, local_files_only=True)

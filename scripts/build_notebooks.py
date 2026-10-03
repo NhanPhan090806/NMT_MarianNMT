@@ -535,8 +535,7 @@ def build_t5_testing():
 
         Open this notebook in VS Code or Jupyter and select the interpreter
         `C:/Users/ADMIN/ai_venv/Scripts/python.exe`. Run the cells from the top.
-        The existing successful export in `qa_baseline_artifacts/` is selected below.
-        You can choose another downloaded `hf_export/` folder to test a later model.
+        The retained best T5 model is stored in `models/t5_small/`.
         The helper source is imported from this local project. Model loading is
         offline, and CUDA is used if available, with CPU as the fallback.
 
@@ -582,7 +581,7 @@ def build_t5_testing():
         if Path(qa_assignment.__file__).resolve().parent != SOURCE_ROOT / "qa_assignment":
             raise RuntimeError("Helpers were imported from another checkout. Restart the kernel and rerun setup.")
         import torch
-        from qa_assignment.inference import T5Answerer, find_t5_exports
+        from qa_assignment.inference import T5Answerer
 
         DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
         OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -591,27 +590,17 @@ def build_t5_testing():
         md("""
         ## Load your saved model
 
-        The default `MODEL_DIR` points to the successful run already in this project.
+        The default `MODEL_DIR` is `models/t5_small/`, containing the retained best
+        model and its tokenizer. `qa_config.json` keeps its input and output limits.
         Relative paths resolve against `PROJECT_DIR`; an absolute Windows path also
-        works. Select the `hf_export/` folder containing the model and tokenizer.
-        An empty setting discovers exports under the local artifact/output folders;
-        if there are multiple exports, choose one explicitly.
+        works.
         The model and tokenizer load entirely from disk, without fetching new weights.
         Run this cell once; subsequent question cells reuse the loaded model.
         """),
         code("""
-        from qa_assignment.inference import T5Answerer, find_t5_exports
+        from qa_assignment.inference import T5Answerer
 
-        MODEL_DIR = "qa_baseline_artifacts/rnn_lstm_attn_t5/checkpoints/t5_small/seed_42/hf_export"
-        exports = find_t5_exports([PROJECT_DIR / "qa_baseline_artifacts",
-                                   PROJECT_DIR / "checkpoints", PROJECT_DIR / "outputs"])
-        print("Available T5 exports:")
-        for index, path in enumerate(exports):
-            print(index, path)
-        if not MODEL_DIR.strip():
-            if len(exports) != 1:
-                raise ValueError("Set MODEL_DIR to the hf_export folder from your downloaded model outputs.")
-            MODEL_DIR = str(exports[0])
+        MODEL_DIR = "models/t5_small"
         model_path = Path(MODEL_DIR).expanduser()
         if not model_path.is_absolute():
             model_path = PROJECT_DIR / model_path
@@ -694,6 +683,20 @@ def main():
                 notebook.cells[1].source = notebook.cells[1].source.replace(
                     'OUTPUT_ROOT = WORKSPACE / "qa_assignment"', 'OUTPUT_ROOT = WORKSPACE / "qa_baselines_retrain"')
                 notebook.cells[5] = existing.cells[5]
+            elif name.startswith("03_"):
+                # Preserve user-added passage/question cells and local kernel settings.
+                notebook = existing
+                if existing.metadata.get("qa_assignment", {}).get("version", 0) < 3:
+                    notebook.cells[0].source = cells[0].source
+                    for cell in notebook.cells:
+                        if cell.cell_type == "markdown" and cell.source.startswith("## Load your saved model"):
+                            cell.source = cells[4].source
+                        elif cell.cell_type == "code" and "MODEL_DIR =" in cell.source and "T5Answerer.from_export" in cell.source:
+                            cell.source = cells[5].source
+                        elif cell.cell_type == "code":
+                            cell.source = cell.source.replace(
+                                "from qa_assignment.inference import T5Answerer, find_t5_exports",
+                                "from qa_assignment.inference import T5Answerer")
             elif len(existing.cells) != len(cells):
                 raise ValueError(f"Cell layout changed in {name}; patch it manually to preserve edits.")
             else:
@@ -719,14 +722,19 @@ def main():
                         notebook.cells[index] = existing.cells[index]
                     else:
                         notebook.cells[index].id = existing.cells[index].id
-        notebook.metadata = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-                             "language_info": {"name": "python", "version": "3.11"}}
+        if not name.startswith("03_") or "kernelspec" not in notebook.metadata:
+            notebook.metadata = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+                                 "language_info": {"name": "python", "version": "3.11"}}
         if name.startswith("02_"):
             notebook.metadata["qa_assignment"] = {"workflow": "seq2seq_baselines", "version": 4}
         elif name.startswith("01_"):
             notebook.metadata["qa_assignment"] = {"workflow": "attention_mamba", "version": 2}
         else:
-            notebook.metadata["qa_assignment"] = {"workflow": "t5_question_answering_local", "version": 2}
+            notebook.metadata["qa_assignment"] = {"workflow": "t5_question_answering_local", "version": 3}
+            for cell in notebook.cells:
+                if cell.cell_type == "code":
+                    cell.outputs = []
+                    cell.execution_count = None
         nbf.validate(notebook)
         nbf.write(notebook, destination)
         print(destination.relative_to(ROOT))

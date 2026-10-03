@@ -13,3 +13,4 @@ results/
 *.zip
 analysis/
 qa_baseline_artifacts/
+models/
