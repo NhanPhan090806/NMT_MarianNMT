@@ -529,48 +529,93 @@ def build_baselines():
 
 
 def build_t5_testing():
-    cells = common_cells("Ask your fine-tuned T5 questions", "Load a saved model once and ask questions about a passage.")
-    cells[0] = md("""
-        # Test your fine-tuned T5 question-answering model
+    cells = [
+        md("""
+        # Test your fine-tuned T5 locally
 
-        Attach notebook 2's saved outputs as a Kaggle input, including the selected
-        `checkpoints/t5_small/seed_42/hf_export/` folder. The earlier successful run's
-        export works too; retraining is not required to use this notebook.
-        Set `REPO_URL`, clone/install the Python helpers, and select your export below.
-        No dataset download, training, or Mamba installation runs here. GPU is optional.
+        Open this notebook in VS Code or Jupyter and select the interpreter
+        `C:/Users/ADMIN/ai_venv/Scripts/python.exe`. Run the cells from the top.
+        The existing successful export in `qa_baseline_artifacts/` is selected below.
+        You can choose another downloaded `hf_export/` folder to test a later model.
+        The helper source is imported from this local project. Model loading is
+        offline, and CUDA is used if available, with CPU as the fallback.
 
-        This model answers questions from a supplied English passage. Provide the
-        context containing the answer; it was not trained as a general chatbot.
-        """)
-    cells[1].source = cells[1].source.replace('OUTPUT_ROOT = WORKSPACE / "qa_assignment_retrain"',
-                                             'OUTPUT_ROOT = WORKSPACE / "t5_qa_test"')
-    cells[3].source = cells[3].source[:cells[3].source.index('if not torch.cuda.is_available():')] + (
-        'DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"\n'
-        'OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)\n'
-        'print("Inference device:", DEVICE)\n')
-    cells += [
+        Provide a passage and ask questions about it. This model was trained for
+        passage-based question answering, rather than general chat.
+        """),
+        code(r'''
+        from pathlib import Path
+        import sys
+
+        VENV_PYTHON = Path(r"C:\Users\ADMIN\ai_venv\Scripts\python.exe")
+        PROJECT_DIR = None  # optionally Path(r"C:\path\to\Asgm_1") if opened elsewhere
+        if Path(sys.executable).resolve() != VENV_PYTHON.resolve():
+            raise RuntimeError(f"Select this notebook's Python kernel: {VENV_PYTHON}. Current: {sys.executable}")
+        if PROJECT_DIR is None:
+            PROJECT_DIR = next((directory for directory in (Path.cwd(), *Path.cwd().parents)
+                                if (directory / "pyproject.toml").is_file() and
+                                (directory / "src" / "qa_assignment").is_dir()), None)
+        if PROJECT_DIR is None:
+            raise FileNotFoundError("Open the notebook from the assignment folder, or set PROJECT_DIR explicitly.")
+        PROJECT_DIR = Path(PROJECT_DIR).expanduser().resolve()
+        SOURCE_ROOT = PROJECT_DIR / "src"
+        if not (SOURCE_ROOT / "qa_assignment" / "inference.py").is_file():
+            raise FileNotFoundError(f"Cannot find the local helpers under {SOURCE_ROOT}.")
+        OUTPUT_ROOT = PROJECT_DIR / "outputs" / "t5_qa_test"
+        print("Python:", sys.executable)
+        print("Project:", PROJECT_DIR)
+        '''),
+        md("""
+        ## Import local helpers
+
+        The selected venv must already contain the project's Python dependencies.
+        Setup imports them without installing packages or modifying your environment.
+        GPU is optional. If you prefer CPU, set `DEVICE="cpu"` below.
+        """),
+        code("""
+        import importlib
+
+        if str(SOURCE_ROOT) not in sys.path:
+            sys.path.insert(0, str(SOURCE_ROOT))
+        importlib.invalidate_caches()
+        import qa_assignment
+        if Path(qa_assignment.__file__).resolve().parent != SOURCE_ROOT / "qa_assignment":
+            raise RuntimeError("Helpers were imported from another checkout. Restart the kernel and rerun setup.")
+        import torch
+        from qa_assignment.inference import T5Answerer, find_t5_exports
+
+        DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
+        OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+        print("Inference device:", DEVICE)
+        """),
         md("""
         ## Load your saved model
 
-        `MODEL_DIR` is a local folder, for example
-        `/kaggle/input/YOUR-SAVED-OUTPUT/qa_baselines/checkpoints/t5_small/seed_42/hf_export`.
-        Enter the exact path shown below. If only one T5 export is attached, an empty
-        setting selects it automatically. With multiple exports, choose one explicitly.
-        The model and tokenizer load entirely from the export, without fetching new weights.
+        The default `MODEL_DIR` points to the successful run already in this project.
+        Relative paths resolve against `PROJECT_DIR`; an absolute Windows path also
+        works. Select the `hf_export/` folder containing the model and tokenizer.
+        An empty setting discovers exports under the local artifact/output folders;
+        if there are multiple exports, choose one explicitly.
+        The model and tokenizer load entirely from disk, without fetching new weights.
         Run this cell once; subsequent question cells reuse the loaded model.
         """),
         code("""
         from qa_assignment.inference import T5Answerer, find_t5_exports
 
-        MODEL_DIR = ""  # path to the attached hf_export/ folder; not best.pt
-        exports = find_t5_exports([Path("/kaggle/input"), Path("/kaggle/working")])
+        MODEL_DIR = "qa_baseline_artifacts/rnn_lstm_attn_t5/checkpoints/t5_small/seed_42/hf_export"
+        exports = find_t5_exports([PROJECT_DIR / "qa_baseline_artifacts",
+                                   PROJECT_DIR / "checkpoints", PROJECT_DIR / "outputs"])
         print("Available T5 exports:")
         for index, path in enumerate(exports):
             print(index, path)
         if not MODEL_DIR.strip():
             if len(exports) != 1:
-                raise ValueError("Attach your saved output, then set MODEL_DIR to one listed hf_export folder.")
+                raise ValueError("Set MODEL_DIR to the hf_export folder from your downloaded model outputs.")
             MODEL_DIR = str(exports[0])
+        model_path = Path(MODEL_DIR).expanduser()
+        if not model_path.is_absolute():
+            model_path = PROJECT_DIR / model_path
+        MODEL_DIR = str(model_path.resolve())
         qa = T5Answerer.from_export(MODEL_DIR, device=DEVICE)
         print("Loaded:", MODEL_DIR)
         print("Question + passage limit:", qa.max_input_length, "tokens")
@@ -613,8 +658,8 @@ def build_t5_testing():
         ## Optional typed questions and saved answers
 
         For a manual session, enable the input loop below. Submit an empty question
-        to exit. It defaults off so a saved Kaggle run cannot wait indefinitely for input.
-        Answers from either interface can be saved in Kaggle Output.
+        to exit. It defaults off so running every cell does not wait for typed input.
+        Answers from either interface can be saved locally.
         """),
         code("""
         RUN_INTERACTIVE_CHAT = False
@@ -636,7 +681,7 @@ def main():
     directory = ROOT
     for name, cells in (("01_attention_mamba_kaggle.ipynb", build_attention_mamba()),
                         ("02_t5_transfer_learning_kaggle.ipynb", build_baselines()),
-                        ("03_t5_question_answering_kaggle.ipynb", build_t5_testing())):
+                        ("03_t5_question_answering_local.ipynb", build_t5_testing())):
         notebook = nbf.v4.new_notebook(cells=cells)
         destination = directory / name
         if destination.exists():
@@ -655,6 +700,8 @@ def main():
                 # On subsequent builds preserve repository, data, and experiment
                 # controls; refresh only the shared installation section.
                 refresh = {2, 3}
+                if name.startswith("03_") and existing.metadata.get("qa_assignment", {}).get("version", 0) < 2:
+                    refresh.update((0, 1, 4, 5, 10, 12))
                 if name.startswith("02_") and existing.metadata.get("qa_assignment", {}).get("version", 0) < 4:
                     refresh.update((0, *range(6, 14)))
                     notebook.cells[1] = existing.cells[1]
@@ -679,7 +726,7 @@ def main():
         elif name.startswith("01_"):
             notebook.metadata["qa_assignment"] = {"workflow": "attention_mamba", "version": 2}
         else:
-            notebook.metadata["qa_assignment"] = {"workflow": "t5_question_answering", "version": 1}
+            notebook.metadata["qa_assignment"] = {"workflow": "t5_question_answering_local", "version": 2}
         nbf.validate(notebook)
         nbf.write(notebook, destination)
         print(destination.relative_to(ROOT))

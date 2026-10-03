@@ -984,9 +984,11 @@ schedule above; the architecture definitions and shared full-data contract stay 
   for a separate small generalization check, without official validation or benchmarks.
 - Fresh output roots are `qa_assignment_retrain/` and `qa_baselines_retrain/` under
   `/kaggle/working`. Old stopped runs are incompatible with the new settings/source.
-- A third notebook, `03_t5_question_answering_kaggle.ipynb`, loads the selected T5
+- A third notebook, `03_t5_question_answering_local.ipynb`, loads the selected T5
   `hf_export/` locally and answers editable questions about a supplied passage. The
   previous successful T5 export can be used immediately, with no retraining required.
+  It runs locally with `C:/Users/ADMIN/ai_venv/Scripts/python.exe`, imports this project's
+  helpers directly, and saves answers under `outputs/t5_qa_test/`.
 
 Memorization is a prerequisite for diagnosing the common recipe, not evidence of
 held-out QA performance. Reassess scratch learning and generalization before making

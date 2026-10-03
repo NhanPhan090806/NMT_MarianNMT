@@ -7,8 +7,8 @@ from dataclasses import replace
 import nbformat
 
 
-def test_three_kaggle_notebooks_are_valid_and_have_repo_variables():
-    paths = sorted(Path(__file__).resolve().parents[1].glob("*_kaggle.ipynb"))
+def test_training_and_local_testing_notebooks_are_valid():
+    paths = sorted(Path(__file__).resolve().parents[1].glob("0*_*.ipynb"))
     assert len(paths) == 3
     for path in paths:
         notebook = nbformat.read(path, as_version=4)
@@ -19,12 +19,15 @@ def test_three_kaggle_notebooks_are_valid_and_have_repo_variables():
                 assert cell.outputs == []
                 assert cell.execution_count is None
         combined = "\n".join(cell.source for cell in notebook.cells)
-        assert 'REPO_URL = ' in combined
-        assert '"git", "clone"' in combined
         if path.name.startswith("03_"):
+            assert path.name.endswith("_local.ipynb")
             assert "T5Answerer.from_export" in combined
             assert "install_mamba" not in combined and "run_experiment" not in combined
+            assert "/kaggle/" not in combined and '"git", "clone"' not in combined
+            assert "ai_venv" in combined and "PROJECT_DIR" in combined
         else:
+            assert 'REPO_URL = ' in combined
+            assert '"git", "clone"' in combined
             assert 'resume="auto"' in combined
 
 

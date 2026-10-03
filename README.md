@@ -1,12 +1,13 @@
 # Generative QA assignment: RNN, LSTM, attention, Mamba, and T5
 
 Python files contain data preparation, model definitions, training, checkpointing,
-evaluation, and profiling. Three Kaggle notebooks provide the interfaces:
+evaluation, and profiling. Two Kaggle training notebooks and one local testing
+notebook provide the interfaces:
 
 - `01_attention_mamba_kaggle.ipynb`: all four scratch encoder/decoder variants.
 - `02_t5_transfer_learning_kaggle.ipynb`: **RNN → LSTM → attention → T5**, all
   encoder-decoder models, with no Mamba dependency. The existing filename is retained.
-- `03_t5_question_answering_kaggle.ipynb`: load an exported T5 and ask questions
+- `03_t5_question_answering_local.ipynb`: load an exported T5 locally and ask questions
   about your own passage; no training, dataset download, or Mamba installation.
 
 `plan.md` records the original design and the revised notebook-2 scope.
@@ -138,15 +139,21 @@ It does not evaluate official validation or reuse its weights in the main run.
 
 ### Ask questions with your saved T5
 
-Attach your earlier successful notebook-2 output or a new output as a Kaggle input.
-In notebook 3, set `REPO_URL` and run setup. Set `MODEL_DIR` to its
-`checkpoints/t5_small/seed_42/hf_export/` folder; the notebook lists attached exports
-and automatically selects one if there is exactly one. Use the exported model and
-tokenizer together. Loading needs no weight download and works on GPU or CPU.
+Open `03_t5_question_answering_local.ipynb` in VS Code or Jupyter and select
+`C:/Users/ADMIN/ai_venv/Scripts/python.exe` as its Python kernel. Run from the project
+folder; `PROJECT_DIR` can be set explicitly if the notebook server starts elsewhere.
+The notebook imports local helpers without cloning or installing packages.
+
+`MODEL_DIR` defaults to your existing successful export at
+`qa_baseline_artifacts/rnn_lstm_attn_t5/checkpoints/t5_small/seed_42/hf_export`.
+Choose another downloaded `hf_export/` folder to test a later model. Relative paths
+resolve against `PROJECT_DIR`; absolute Windows paths work too. An empty setting
+discovers exports under local artifact/output folders and selects one if there is
+exactly one. Loading is offline and works on CUDA or CPU.
 
 Edit `PASSAGE` and `QUESTION`, then rerun the answer cell. A question list and optional
-typed input loop reuse the loaded model. The loop defaults off for Kaggle batch runs.
-Answers can be saved to `/kaggle/working/t5_qa_test/answers.json`. Input formatting and
+typed input loop reuse the loaded model. The loop defaults off for automated runs.
+Answers can be saved to `outputs/t5_qa_test/answers.json` inside the project. Input formatting and
 the saved sequence caps match training; long inputs are rejected rather than silently
 truncated. This is passage-based QA, not open-domain chat. SQuAD 1.1 did not train the
 model to abstain when the passage lacks the requested answer. Generation uses the
