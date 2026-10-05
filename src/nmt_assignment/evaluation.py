@@ -30,6 +30,7 @@ def evaluate(model, dataset, collator, tokenizer, device, max_output_length,
         raise ValueError("Evaluation split is empty.")
     predictions, references, records = [], [], []
     loss_sum, correct, tokens, first_eos, generated_tokens = 0.0, 0, 0, 0, 0
+    missing_eos, at_cap = 0, 0
     synchronize(device)
     started = time.perf_counter()
     for batch in DataLoader(rows, batch_size=batch_size, collate_fn=collator, num_workers=0):
@@ -47,6 +48,8 @@ def evaluate(model, dataset, collator, tokenizer, device, max_output_length,
         tokens += int(valid.sum())
         first_eos += int(output[:, 0].eq(tokenizer.eos_token_id).sum())
         generated_tokens += int(output.ne(tokenizer.pad_token_id).sum())
+        missing_eos += int((~output.eq(tokenizer.eos_token_id).any(dim=1)).sum())
+        at_cap += int(output.ne(tokenizer.pad_token_id).sum(dim=1).ge(max_output_length).sum())
         decoded = tokenizer.batch_decode(output.cpu(), skip_special_tokens=True)
         predictions.extend(decoded)
         references.extend(batch["references"])
@@ -58,6 +61,8 @@ def evaluate(model, dataset, collator, tokenizer, device, max_output_length,
                "first_token_eos_percent": 100 * first_eos / len(rows),
                "empty_prediction_percent": 100 * sum(not p.strip() for p in predictions) / len(rows),
                "mean_generated_tokens": generated_tokens / len(rows),
+               "missing_eos_percent": 100 * missing_eos / len(rows),
+               "output_cap_percent": 100 * at_cap / len(rows),
                "evaluation_seconds": time.perf_counter() - started, "samples": records[:5]}
     if include_predictions:
         metrics["predictions"] = records

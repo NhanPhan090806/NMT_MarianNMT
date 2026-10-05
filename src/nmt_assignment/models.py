@@ -125,6 +125,7 @@ def build_model(config, bundle):
 def generate(model, batch, max_new_tokens):
     if isinstance(model, MarianTranslator):
         generated = model.hf_model.generate(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"],
-                                           max_new_tokens=max_new_tokens, num_beams=1, do_sample=False, use_cache=True)
+                                           max_new_tokens=max_new_tokens, max_length=None,
+                                           num_beams=1, do_sample=False, use_cache=True)
         return generated[:, 1:]  # HF includes the initial decoder token
     return scratch_generate(model, batch["input_ids"], batch["attention_mask"], max_new_tokens)

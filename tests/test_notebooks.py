@@ -52,6 +52,7 @@ def test_scratch_notebook_order_capacity_stopping_and_diagnostic_gate(tmp_path, 
                  "bundle": object(), "OUTPUT_ROOT": tmp_path, "DEVICE": "cpu", "REPO_ROOT": ROOT,
                  "run_experiment": completed, "archive_translation_outputs": lambda root: root / "archive.zip"}
     exec(tagged(notebook, "configuration"), namespace)
+    assert namespace["DIAGNOSTIC_STEPS"] == 1000
     assert tuple(namespace["STAGE_ORDER"]) == ("rnn", "lstm_attention", "transformer")
     assert [namespace["MODEL_CONFIGS"][s].d_model for s in namespace["STAGE_ORDER"]] == [128, 192, 256]
     namespace["diagnostics"] = {s: {"overfit_demonstrated": s != "rnn"} for s in namespace["STAGE_ORDER"]}
@@ -67,6 +68,15 @@ def test_pretrained_notebook_recipe_and_restoration_controls():
     assert "early_stopping_patience=2" in text and "bundle.for_pretrained()" in text
     assert "RESTORE_FROM" in tagged(notebook, "setup")
     assert "PyTorch >=2.6" in text
+
+
+def test_setup_requires_fresh_kernel_and_hub_compatible_with_kaggle():
+    for name in ("01_nmt_scratch_kaggle.ipynb", "02_nmt_pretrained_kaggle.ipynb"):
+        source = tagged(nbformat.read(ROOT / name, as_version=4), "setup")
+        assert source.index("sys.modules") < source.index('"pip", "install"')
+        assert 'version("transformers") != "5.17.0"' in source
+    requirements = (ROOT / "requirements-kaggle.txt").read_text()
+    assert "transformers==5.17.0" in requirements and "huggingface-hub>=1.23,<2" in requirements
 
 
 def test_generator_preserves_user_controls_and_never_edits_qa(tmp_path, monkeypatch):

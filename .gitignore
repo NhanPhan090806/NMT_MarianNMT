@@ -13,4 +13,5 @@ results/
 *.zip
 analysis/
 qa_baseline_artifacts/
+kaggle_runs/
 models/

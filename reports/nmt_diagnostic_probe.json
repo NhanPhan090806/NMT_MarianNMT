@@ -1,0 +1,404 @@
+{
+  "lstm_attention": {
+    "stage": "lstm_attention",
+    "overfit_demonstrated": true,
+    "target_chrf": 90.0,
+    "examples": 8,
+    "history": [
+      {
+        "step": 100,
+        "chrf": 5.752830678433759,
+        "bleu": 0.4331367280670508,
+        "loss": 3.5602946413156076,
+        "gradient_norm": 0.17474067211151123
+      },
+      {
+        "step": 200,
+        "chrf": 5.631337222930856,
+        "bleu": 0.16421941714459387,
+        "loss": 2.476659279501899,
+        "gradient_norm": 0.09641842544078827
+      },
+      {
+        "step": 300,
+        "chrf": 6.619277244609371,
+        "bleu": 0.1949910481140619,
+        "loss": 1.942571987763294,
+        "gradient_norm": 0.08727273344993591
+      },
+      {
+        "step": 400,
+        "chrf": 29.23266074352146,
+        "bleu": 22.983340328496716,
+        "loss": 1.080967096992619,
+        "gradient_norm": 0.11932431161403656
+      },
+      {
+        "step": 500,
+        "chrf": 54.70842893061454,
+        "bleu": 38.599196674926496,
+        "loss": 0.5786795431737741,
+        "gradient_norm": 0.04956081882119179
+      },
+      {
+        "step": 600,
+        "chrf": 73.14436159087214,
+        "bleu": 48.05530070026807,
+        "loss": 0.19965063274236014,
+        "gradient_norm": 0.03301675245165825
+      },
+      {
+        "step": 700,
+        "chrf": 92.64562456520538,
+        "bleu": 75.18558592052173,
+        "loss": 0.06342054862343804,
+        "gradient_norm": 0.013649308122694492
+      }
+    ],
+    "final": {
+      "bleu": 75.18558592052173,
+      "chrf": 92.64562456520538,
+      "bleu_signature": "nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0",
+      "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.6.0",
+      "examples": 8,
+      "teacher_forced_loss": 0.06342054862343804,
+      "token_accuracy": 99.4475138121547,
+      "first_token_eos_percent": 0.0,
+      "empty_prediction_percent": 0.0,
+      "mean_generated_tokens": 28.625,
+      "missing_eos_percent": 12.5,
+      "output_cap_percent": 12.5,
+      "evaluation_seconds": 0.2576087999914307,
+      "samples": [
+        {
+          "id": "549a4eb61eb752d8dc4119826bf495e62bd4a00142f85c1357c85eb8463bf85e",
+          "source": "And the second one .",
+          "reference": "Và loại thứ hai",
+          "prediction": "Và loại thứ hai"
+        },
+        {
+          "id": "47d3e9d9108f1b26d0b3f763a1e3b5dbf123df3b1900d75b198c1b248ae21cb8",
+          "source": "This , again , is life expectancy .",
+          "reference": "Đây , một lần nữa , là tuổi thọ trung bình .",
+          "prediction": "Đây , một lần nữa , là tuổi thọ trung bình ."
+        },
+        {
+          "id": "b9b1475ec8b5dcb0fc38c75b923cf80da91356545d11cb51578687e4b66e8f31",
+          "source": "I thought this was a basic question to ask in a democracy .",
+          "reference": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ .",
+          "prediction": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ ."
+        },
+        {
+          "id": "61df3b5bd434940bd1170739e5fa2c349accd0ccda43935ec8c4670bb9ea0e9a",
+          "source": "So I think what I 'll do is just call you a storyteller . \"",
+          "reference": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \"",
+          "prediction": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \""
+        },
+        {
+          "id": "753e6f812efded4462188ad06ec00c744221f7ca2500e6fbabbf72c3f5d37249",
+          "source": "This made me realize that my project was actually much harder to realize than I initially had thought it to be .",
+          "reference": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu .",
+          "prediction": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu ."
+        }
+      ],
+      "predictions": [
+        {
+          "id": "549a4eb61eb752d8dc4119826bf495e62bd4a00142f85c1357c85eb8463bf85e",
+          "source": "And the second one .",
+          "reference": "Và loại thứ hai",
+          "prediction": "Và loại thứ hai"
+        },
+        {
+          "id": "47d3e9d9108f1b26d0b3f763a1e3b5dbf123df3b1900d75b198c1b248ae21cb8",
+          "source": "This , again , is life expectancy .",
+          "reference": "Đây , một lần nữa , là tuổi thọ trung bình .",
+          "prediction": "Đây , một lần nữa , là tuổi thọ trung bình ."
+        },
+        {
+          "id": "b9b1475ec8b5dcb0fc38c75b923cf80da91356545d11cb51578687e4b66e8f31",
+          "source": "I thought this was a basic question to ask in a democracy .",
+          "reference": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ .",
+          "prediction": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ ."
+        },
+        {
+          "id": "61df3b5bd434940bd1170739e5fa2c349accd0ccda43935ec8c4670bb9ea0e9a",
+          "source": "So I think what I 'll do is just call you a storyteller . \"",
+          "reference": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \"",
+          "prediction": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \""
+        },
+        {
+          "id": "753e6f812efded4462188ad06ec00c744221f7ca2500e6fbabbf72c3f5d37249",
+          "source": "This made me realize that my project was actually much harder to realize than I initially had thought it to be .",
+          "reference": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu .",
+          "prediction": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu ."
+        },
+        {
+          "id": "724a06f60e9b7ff14de452d19eff0d7401285ab1e8e2ca222b258d787cff011f",
+          "source": "And so , you tell them your theory and they say , \" No , no , that 's not the way consciousness is !",
+          "reference": "Và thế rồi bạn nói với họ về thuyết của bạn và họ nói \" Không , không , nhận thức không phải như thế !",
+          "prediction": "Và thế rồi bạn nói với họ về thuyết của bạn và họ nói \" Không , không , nhận thức không phải như thế !"
+        },
+        {
+          "id": "5dfbb2f624ce70b0dc984405dfb07ed5a0faab88a1a87fcd2dbaf60831caa5d9",
+          "source": "But we wanted to make the economic case , because if we could make the economic case , then the value of doing this would be completely compelling .",
+          "reference": "Nhưng chúng tôi cũng muốn đề cao giá trị kinh tế bởi vì nếu chúng ta có thể đạt được giá trị kinh tế thì ý nghĩa của việc này sẽ trở nên rất thuyết phục",
+          "prediction": "Nhưng chúng tôi cũng muốn đề cao giá trị kinh tế bởi vì nếu chúng ta có thể đạt được giá trị kinh tế thì ý nghĩa của việc này sẽ trở nên rất thuyết phục"
+        },
+        {
+          "id": "e94f014323a4f23733c2c6f264945d8a8c40f343b525a41fc15e39d3fbcd7689",
+          "source": "And this is very important , because what it means is that very , very small effects that might be difficult to detect in the lab , might be compounded and compounded into something that we could possibly observe in nature .",
+          "reference": "Điều này rất quan trọng , vì nó có nghĩa là những hiệu ứng rất , rất nhỏ có thể rất khó phát hiện trong phòng thí nghiệm , có thể được hợp vào nhau thành một cái gì đấy có thể thấy trong tự nhiên .",
+          "prediction": "Điều này rất quan trọng , vì nó có nghĩa là những hiệu ứng rất , rất nhỏ có thể rất khó phát hiện trong phòng thí nghiệm , có thể được hợp vào nhau thành một cái gì đấy có thể thấy trong phòng thí nghiệm , có thể được hợp vào nhau thành một cái gì đấy có thể thấy trong phòng thí nghiệm , có thể được hợp vào nhau thành một cái gì đấy có thể thấy trong phòng thí nghiệm , có thể được hợp vào nhau thành một cái gì"
+        }
+      ]
+    },
+    "selection": "train-only length-spread sentences; >=4 alphabetic words per side, <=48 tokens",
+    "seconds": 27.08663780000643,
+    "settings": {
+      "lr": 0.003,
+      "dropout": 0,
+      "precision": "fp32"
+    },
+    "data_fingerprint": "d07a07c62589fd6d76daeb8bcf97e8300710d86e5ef28e44fb89d971cd6b307d"
+  },
+  "rnn": {
+    "stage": "rnn",
+    "overfit_demonstrated": true,
+    "target_chrf": 90.0,
+    "examples": 8,
+    "history": [
+      {
+        "step": 100,
+        "chrf": 100.0,
+        "bleu": 100.00000000000004,
+        "loss": 0.02474968999788906,
+        "gradient_norm": 0.015750648453831673
+      }
+    ],
+    "final": {
+      "bleu": 100.00000000000004,
+      "chrf": 100.0,
+      "bleu_signature": "nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0",
+      "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.6.0",
+      "examples": 8,
+      "teacher_forced_loss": 0.02474968999788906,
+      "token_accuracy": 100.0,
+      "first_token_eos_percent": 0.0,
+      "empty_prediction_percent": 0.0,
+      "mean_generated_tokens": 22.625,
+      "missing_eos_percent": 0.0,
+      "output_cap_percent": 0.0,
+      "evaluation_seconds": 0.17699000000720844,
+      "samples": [
+        {
+          "id": "549a4eb61eb752d8dc4119826bf495e62bd4a00142f85c1357c85eb8463bf85e",
+          "source": "And the second one .",
+          "reference": "Và loại thứ hai",
+          "prediction": "Và loại thứ hai"
+        },
+        {
+          "id": "47d3e9d9108f1b26d0b3f763a1e3b5dbf123df3b1900d75b198c1b248ae21cb8",
+          "source": "This , again , is life expectancy .",
+          "reference": "Đây , một lần nữa , là tuổi thọ trung bình .",
+          "prediction": "Đây , một lần nữa , là tuổi thọ trung bình ."
+        },
+        {
+          "id": "b9b1475ec8b5dcb0fc38c75b923cf80da91356545d11cb51578687e4b66e8f31",
+          "source": "I thought this was a basic question to ask in a democracy .",
+          "reference": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ .",
+          "prediction": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ ."
+        },
+        {
+          "id": "61df3b5bd434940bd1170739e5fa2c349accd0ccda43935ec8c4670bb9ea0e9a",
+          "source": "So I think what I 'll do is just call you a storyteller . \"",
+          "reference": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \"",
+          "prediction": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \""
+        },
+        {
+          "id": "753e6f812efded4462188ad06ec00c744221f7ca2500e6fbabbf72c3f5d37249",
+          "source": "This made me realize that my project was actually much harder to realize than I initially had thought it to be .",
+          "reference": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu .",
+          "prediction": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu ."
+        }
+      ],
+      "predictions": [
+        {
+          "id": "549a4eb61eb752d8dc4119826bf495e62bd4a00142f85c1357c85eb8463bf85e",
+          "source": "And the second one .",
+          "reference": "Và loại thứ hai",
+          "prediction": "Và loại thứ hai"
+        },
+        {
+          "id": "47d3e9d9108f1b26d0b3f763a1e3b5dbf123df3b1900d75b198c1b248ae21cb8",
+          "source": "This , again , is life expectancy .",
+          "reference": "Đây , một lần nữa , là tuổi thọ trung bình .",
+          "prediction": "Đây , một lần nữa , là tuổi thọ trung bình ."
+        },
+        {
+          "id": "b9b1475ec8b5dcb0fc38c75b923cf80da91356545d11cb51578687e4b66e8f31",
+          "source": "I thought this was a basic question to ask in a democracy .",
+          "reference": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ .",
+          "prediction": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ ."
+        },
+        {
+          "id": "61df3b5bd434940bd1170739e5fa2c349accd0ccda43935ec8c4670bb9ea0e9a",
+          "source": "So I think what I 'll do is just call you a storyteller . \"",
+          "reference": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \"",
+          "prediction": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \""
+        },
+        {
+          "id": "753e6f812efded4462188ad06ec00c744221f7ca2500e6fbabbf72c3f5d37249",
+          "source": "This made me realize that my project was actually much harder to realize than I initially had thought it to be .",
+          "reference": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu .",
+          "prediction": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu ."
+        },
+        {
+          "id": "724a06f60e9b7ff14de452d19eff0d7401285ab1e8e2ca222b258d787cff011f",
+          "source": "And so , you tell them your theory and they say , \" No , no , that 's not the way consciousness is !",
+          "reference": "Và thế rồi bạn nói với họ về thuyết của bạn và họ nói \" Không , không , nhận thức không phải như thế !",
+          "prediction": "Và thế rồi bạn nói với họ về thuyết của bạn và họ nói \" Không , không , nhận thức không phải như thế !"
+        },
+        {
+          "id": "5dfbb2f624ce70b0dc984405dfb07ed5a0faab88a1a87fcd2dbaf60831caa5d9",
+          "source": "But we wanted to make the economic case , because if we could make the economic case , then the value of doing this would be completely compelling .",
+          "reference": "Nhưng chúng tôi cũng muốn đề cao giá trị kinh tế bởi vì nếu chúng ta có thể đạt được giá trị kinh tế thì ý nghĩa của việc này sẽ trở nên rất thuyết phục",
+          "prediction": "Nhưng chúng tôi cũng muốn đề cao giá trị kinh tế bởi vì nếu chúng ta có thể đạt được giá trị kinh tế thì ý nghĩa của việc này sẽ trở nên rất thuyết phục"
+        },
+        {
+          "id": "e94f014323a4f23733c2c6f264945d8a8c40f343b525a41fc15e39d3fbcd7689",
+          "source": "And this is very important , because what it means is that very , very small effects that might be difficult to detect in the lab , might be compounded and compounded into something that we could possibly observe in nature .",
+          "reference": "Điều này rất quan trọng , vì nó có nghĩa là những hiệu ứng rất , rất nhỏ có thể rất khó phát hiện trong phòng thí nghiệm , có thể được hợp vào nhau thành một cái gì đấy có thể thấy trong tự nhiên .",
+          "prediction": "Điều này rất quan trọng , vì nó có nghĩa là những hiệu ứng rất , rất nhỏ có thể rất khó phát hiện trong phòng thí nghiệm , có thể được hợp vào nhau thành một cái gì đấy có thể thấy trong tự nhiên ."
+        }
+      ]
+    },
+    "selection": "train-only length-spread sentences; >=4 alphabetic words per side, <=48 tokens",
+    "seconds": 2.5345991000067443,
+    "settings": {
+      "lr": 0.003,
+      "dropout": 0,
+      "precision": "fp32"
+    },
+    "data_fingerprint": "d07a07c62589fd6d76daeb8bcf97e8300710d86e5ef28e44fb89d971cd6b307d"
+  },
+  "transformer": {
+    "stage": "transformer",
+    "overfit_demonstrated": true,
+    "target_chrf": 90.0,
+    "examples": 8,
+    "history": [
+      {
+        "step": 100,
+        "chrf": 100.0,
+        "bleu": 100.00000000000004,
+        "loss": 0.0002313602653985524,
+        "gradient_norm": 0.0005483331624418497
+      }
+    ],
+    "final": {
+      "bleu": 100.00000000000004,
+      "chrf": 100.0,
+      "bleu_signature": "nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0",
+      "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.6.0",
+      "examples": 8,
+      "teacher_forced_loss": 0.0002313602653985524,
+      "token_accuracy": 100.0,
+      "first_token_eos_percent": 0.0,
+      "empty_prediction_percent": 0.0,
+      "mean_generated_tokens": 22.625,
+      "missing_eos_percent": 0.0,
+      "output_cap_percent": 0.0,
+      "evaluation_seconds": 0.30219190000207163,
+      "samples": [
+        {
+          "id": "549a4eb61eb752d8dc4119826bf495e62bd4a00142f85c1357c85eb8463bf85e",
+          "source": "And the second one .",
+          "reference": "Và loại thứ hai",
+          "prediction": "Và loại thứ hai"
+        },
+        {
+          "id": "47d3e9d9108f1b26d0b3f763a1e3b5dbf123df3b1900d75b198c1b248ae21cb8",
+          "source": "This , again , is life expectancy .",
+          "reference": "Đây , một lần nữa , là tuổi thọ trung bình .",
+          "prediction": "Đây , một lần nữa , là tuổi thọ trung bình ."
+        },
+        {
+          "id": "b9b1475ec8b5dcb0fc38c75b923cf80da91356545d11cb51578687e4b66e8f31",
+          "source": "I thought this was a basic question to ask in a democracy .",
+          "reference": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ .",
+          "prediction": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ ."
+        },
+        {
+          "id": "61df3b5bd434940bd1170739e5fa2c349accd0ccda43935ec8c4670bb9ea0e9a",
+          "source": "So I think what I 'll do is just call you a storyteller . \"",
+          "reference": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \"",
+          "prediction": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \""
+        },
+        {
+          "id": "753e6f812efded4462188ad06ec00c744221f7ca2500e6fbabbf72c3f5d37249",
+          "source": "This made me realize that my project was actually much harder to realize than I initially had thought it to be .",
+          "reference": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu .",
+          "prediction": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu ."
+        }
+      ],
+      "predictions": [
+        {
+          "id": "549a4eb61eb752d8dc4119826bf495e62bd4a00142f85c1357c85eb8463bf85e",
+          "source": "And the second one .",
+          "reference": "Và loại thứ hai",
+          "prediction": "Và loại thứ hai"
+        },
+        {
+          "id": "47d3e9d9108f1b26d0b3f763a1e3b5dbf123df3b1900d75b198c1b248ae21cb8",
+          "source": "This , again , is life expectancy .",
+          "reference": "Đây , một lần nữa , là tuổi thọ trung bình .",
+          "prediction": "Đây , một lần nữa , là tuổi thọ trung bình ."
+        },
+        {
+          "id": "b9b1475ec8b5dcb0fc38c75b923cf80da91356545d11cb51578687e4b66e8f31",
+          "source": "I thought this was a basic question to ask in a democracy .",
+          "reference": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ .",
+          "prediction": "Tôi cho rằng đây là câu hỏi cơ bản của nền dân chủ ."
+        },
+        {
+          "id": "61df3b5bd434940bd1170739e5fa2c349accd0ccda43935ec8c4670bb9ea0e9a",
+          "source": "So I think what I 'll do is just call you a storyteller . \"",
+          "reference": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \"",
+          "prediction": "Vì thế tôi nghĩ tôi chỉ cần gọi cô là người kể chuyện . \""
+        },
+        {
+          "id": "753e6f812efded4462188ad06ec00c744221f7ca2500e6fbabbf72c3f5d37249",
+          "source": "This made me realize that my project was actually much harder to realize than I initially had thought it to be .",
+          "reference": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu .",
+          "prediction": "Điều này khiến tôi nhận ra dự án này khó hơn nhiều so với suy nghĩ ban đầu ."
+        },
+        {
+          "id": "724a06f60e9b7ff14de452d19eff0d7401285ab1e8e2ca222b258d787cff011f",
+          "source": "And so , you tell them your theory and they say , \" No , no , that 's not the way consciousness is !",
+          "reference": "Và thế rồi bạn nói với họ về thuyết của bạn và họ nói \" Không , không , nhận thức không phải như thế !",
+          "prediction": "Và thế rồi bạn nói với họ về thuyết của bạn và họ nói \" Không , không , nhận thức không phải như thế !"
+        },
+        {
+          "id": "5dfbb2f624ce70b0dc984405dfb07ed5a0faab88a1a87fcd2dbaf60831caa5d9",
+          "source": "But we wanted to make the economic case , because if we could make the economic case , then the value of doing this would be completely compelling .",
+          "reference": "Nhưng chúng tôi cũng muốn đề cao giá trị kinh tế bởi vì nếu chúng ta có thể đạt được giá trị kinh tế thì ý nghĩa của việc này sẽ trở nên rất thuyết phục",
+          "prediction": "Nhưng chúng tôi cũng muốn đề cao giá trị kinh tế bởi vì nếu chúng ta có thể đạt được giá trị kinh tế thì ý nghĩa của việc này sẽ trở nên rất thuyết phục"
+        },
+        {
+          "id": "e94f014323a4f23733c2c6f264945d8a8c40f343b525a41fc15e39d3fbcd7689",
+          "source": "And this is very important , because what it means is that very , very small effects that might be difficult to detect in the lab , might be compounded and compounded into something that we could possibly observe in nature .",
+          "reference": "Điều này rất quan trọng , vì nó có nghĩa là những hiệu ứng rất , rất nhỏ có thể rất khó phát hiện trong phòng thí nghiệm , có thể được hợp vào nhau thành một cái gì đấy có thể thấy trong tự nhiên .",
+          "prediction": "Điều này rất quan trọng , vì nó có nghĩa là những hiệu ứng rất , rất nhỏ có thể rất khó phát hiện trong phòng thí nghiệm , có thể được hợp vào nhau thành một cái gì đấy có thể thấy trong tự nhiên ."
+        }
+      ]
+    },
+    "selection": "train-only length-spread sentences; >=4 alphabetic words per side, <=48 tokens",
+    "seconds": 3.4598806999856606,
+    "settings": {
+      "lr": 0.003,
+      "dropout": 0,
+      "precision": "fp32"
+    },
+    "data_fingerprint": "d07a07c62589fd6d76daeb8bcf97e8300710d86e5ef28e44fb89d971cd6b307d"
+  }
+}

@@ -14,6 +14,7 @@ from nmt_assignment.inference import Translator
 from nmt_assignment.models import MarianTranslator, build_model, generate
 from nmt_assignment.training import TranslationTrainer
 from nmt_assignment.workflow import (archive_translation_outputs, collect_results,
+                                     diagnostic_rows, effective_model_config,
                                      learning_diagnostic, run_experiment)
 from qa_assignment.training import load_checkpoint
 from qa_assignment.utils import seed_everything
@@ -224,6 +225,34 @@ def test_diagnostic_has_only_training_sources(nmt_bundle, tmp_path):
     assert len(report["history"]) == 3
 
 
+def test_diagnostic_excludes_one_word_phrases_and_covers_lengths():
+    def row(index, words, tokens):
+        return {"id": str(index), "source": " ".join(["word"] * words),
+                "target": " ".join(["từ"] * words), "input_ids": [4] * tokens,
+                "labels": [5] * tokens}
+    rows = [row(i, 1, 3) for i in range(8)] + [row(i, 4 + i, 5 + i) for i in range(8, 24)]
+    selected = diagnostic_rows(rows, 8)
+    assert all(len(r["source"].split()) >= 4 for r in selected)
+    assert len({len(r["input_ids"]) for r in selected}) == 8
+    assert diagnostic_rows(list(reversed(rows)), 8) == selected
+    with pytest.raises(ValueError, match="four alphabetic words"):
+        diagnostic_rows(rows[:8], 8)
+
+
+def test_evaluation_reports_reaching_cap_without_eos(nmt_bundle, monkeypatch):
+    from nmt_assignment import evaluation
+    model = build_model(small_model("transformer"), nmt_bundle)
+    def capped(model, batch, maximum):
+        output = torch.full((2, maximum), 4, dtype=torch.long)
+        output[0, 2:] = nmt_bundle.tokenizer.pad_token_id
+        output[0, 1] = nmt_bundle.tokenizer.eos_token_id
+        return output
+    monkeypatch.setattr(evaluation, "generate", capped)
+    metrics = evaluate(model, nmt_bundle.test, TranslationCollator(nmt_bundle.tokenizer),
+                       nmt_bundle.tokenizer, "cpu", 8, batch_size=2)
+    assert metrics["missing_eos_percent"] == 50 and metrics["output_cap_percent"] == 50
+
+
 def test_pretrained_marian_forward_and_generation(nmt_bundle):
     bundle = nmt_bundle.for_pretrained()
     hf = MarianMTModel(MarianConfig(vocab_size=64, decoder_vocab_size=64, d_model=16,
@@ -282,3 +311,18 @@ def test_pretrained_training_checkpoint_export_and_offline_reload(nmt_bundle, tm
     translator = Translator.from_export(output / "models" / "marian_en_vi" / "seed_42", device="cpu")
     assert isinstance(translator.translate("a sentence"), str)
     assert (output / "checkpoints" / "marian_en_vi" / "seed_42" / "best.pt").is_file()
+    assert summary["model_config"] == effective_model_config(translator.model)
+    assert "pretrained_architecture" in load_checkpoint(output / "checkpoints" / "marian_en_vi" / "seed_42" / "best.pt")["contract"]
+    exported = json.loads((output / "models" / "marian_en_vi" / "seed_42" / "translation_config.json").read_text())
+    assert exported["effective_model_config"] == summary["model_config"]
+
+
+def test_pretrained_architecture_comes_from_weights_not_wrapper():
+    hf = MarianMTModel(MarianConfig(vocab_size=64, decoder_vocab_size=64, d_model=16,
+        encoder_layers=3, decoder_layers=2, encoder_attention_heads=2, decoder_attention_heads=2,
+        encoder_ffn_dim=32, decoder_ffn_dim=32, pad_token_id=0, eos_token_id=1,
+        decoder_start_token_id=0))
+    model = MarianTranslator(small_model("marian_en_vi"), hf)
+    assert model.config.encoder_layers == 1
+    assert effective_model_config(model)["encoder_layers"] == 3
+    assert effective_model_config(model)["decoder_layers"] == 2

@@ -1,5 +1,7 @@
 # Install before importing project modules. Preserve Kaggle's CUDA-enabled torch.
-transformers==4.57.1
+# v4 pins Hub <1 and conflicts with the Gradio/Diffusers in the observed Kaggle image.
+transformers==5.17.0
+huggingface-hub>=1.23,<2
 sentencepiece==0.2.1
 requests>=2.31,<3
 numpy>=1.26,<3

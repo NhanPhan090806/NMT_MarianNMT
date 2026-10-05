@@ -81,6 +81,8 @@ def common_cells(pretrained=False):
         the pinned Transformers release; scratch experiments also work on PyTorch 2.5.
         """),
         code('''
+        if any(name in sys.modules for name in ("transformers", "huggingface_hub", "tokenizers")):
+            raise RuntimeError("Restart the Kaggle session before setup; ML packages are already imported.")
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r",
                         str(REPO_ROOT / "requirements-kaggle.txt")], check=True)
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "-e", str(REPO_ROOT)], check=True)
@@ -93,6 +95,10 @@ def common_cells(pretrained=False):
         if Path(nmt_assignment.__file__).resolve().parent != SOURCE_ROOT / "nmt_assignment":
             raise RuntimeError("Helpers came from another checkout; restart the session.")
         import torch
+        from importlib.metadata import version
+        from packaging.version import Version
+        if version("transformers") != "5.17.0" or Version(version("huggingface-hub")) < Version("1.23"):
+            raise RuntimeError("Setup versions differ from requirements-kaggle.txt; restart the session.")
         from nmt_assignment.workflow import restore_artifacts
         from qa_assignment.utils import environment_info
         if not torch.cuda.is_available():
@@ -173,7 +179,7 @@ def scratch_cells():
         RUN_RESOURCE_PILOT = True
         RUN_LEARNING_DIAGNOSTIC = True
         REQUIRE_DIAGNOSTIC_PASS = True
-        DIAGNOSTIC_STEPS = 500
+        DIAGNOSTIC_STEPS = 1000  # meaningful sentences take longer than one-word phrases
         BENCHMARK_EXAMPLES = 32
         ''', "configuration"),
         md("""
@@ -181,9 +187,10 @@ def scratch_cells():
 
         Resource pilots run real forward/backward/generation on the selected accelerator.
         Their short-batch time estimates exclude evaluation, checkpointing and sentence
-        length variation. The learning diagnostic memorizes eight short TRAIN examples
+        length variation. The learning diagnostic memorizes eight TRAIN sentences spread
+        across lengths, with at least four alphabetic words per side and at most 48 tokens,
         with dropout off, FP32 and LR 0.003. Its weights are discarded. chrF ≥90 is the
-        pass criterion. A failure skips expensive main training for that model by default;
+        pass criterion, with a 1,000-step budget. A failure skips expensive main training for that model by default;
         inspect `results/diagnostics/` before changing the gate.
         """),
         code('''

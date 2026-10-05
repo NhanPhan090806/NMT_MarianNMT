@@ -16,6 +16,9 @@ class TranslationTrainer(BaseTrainer):
         self.contract["task"] = "english_to_vietnamese_translation"
         self.contract["selection_metric"] = "development_chrf"
         self.contract["tokenization"] = "marian" if self.bundle.pretrained else "train_only_sentencepiece"
+        # The wrapper ModelConfig does not determine Marian's pretrained layer counts.
+        if hasattr(self.model, "hf_model"):
+            self.contract["pretrained_architecture"] = self.model.hf_model.config.to_dict()
 
     def development_evaluation(self):
         self.capture_training_memory()

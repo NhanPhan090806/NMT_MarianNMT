@@ -51,12 +51,14 @@ Use `01_nmt_scratch_kaggle.ipynb` for stages 1–3 and
 `src/nmt_assignment/`, reusing tested generic utilities in `qa_assignment`.
 Clone GitHub on Kaggle, expose `src/` in the already-running kernel, and preserve
 Kaggle's CUDA PyTorch. No custom CUDA extensions or Mamba build are required.
-The pinned Marian `.bin` weights require PyTorch ≥2.6 with Transformers 4.57.1;
+The pinned Marian `.bin` weights require PyTorch ≥2.6 with Transformers 5.17.0;
 check the runtime before loading. Scratch models also support PyTorch 2.5.
 
 Before full training, probe forward/backward/generation and record a resource
-estimate. For scratch models, memorize eight short training examples for at most
-500 updates, FP32, dropout zero, LR 0.003. Target chrF ≥90. Discard diagnostic weights
+estimate. For scratch models, run a train-only memorization check for at most
+1,000 updates, FP32, dropout zero, LR 0.003. Use eight length-spread training
+sentences with at least four alphabetic words per side and at most 48 tokens.
+Target chrF ≥90. Discard diagnostic weights
 and start main training from fresh weights. A failed diagnostic skips that stage
 by default. Inspect decoded predictions rather than relying on decreasing loss alone.
 

@@ -49,17 +49,33 @@ New translation logic lives in `src/nmt_assignment/`.
    settings. Default validation reserve is 5,000 sources; evaluation during training
    uses the same fixed first 512 retained validation examples.
 5. Run resource/learning checks, inspect their decoded outputs, then train. The
-   scratch diagnostic memorizes eight short training examples; chrF ≥90 passes.
+   scratch diagnostic memorizes eight training sentences spread across lengths,
+   with at least four alphabetic words per side and at most 48 tokens; chrF ≥90 passes.
    Diagnostic weights are discarded. Failed stages are skipped by default. Set
    `REQUIRE_DIAGNOSTIC_PASS=False` explicitly only after investigating a failure.
 6. Download `nmt_artifacts.zip` or save Kaggle outputs. `/kaggle/working` is temporary.
 
 The upstream Marian revision contains `pytorch_model.bin`. With pinned Transformers
-4.57.1, loading that format requires **PyTorch ≥2.6**. Notebook 2 checks this and
+5.17.0, loading that format requires **PyTorch ≥2.6**. Notebook 2 checks this and
 reports an actionable error on older runtimes; setup does not replace Kaggle's GPU
 PyTorch. The scratch helpers also work on PyTorch 2.5. Local tests use your existing
 `C:/Users/ADMIN/ai_venv/Scripts/python.exe` and instantiate tiny random Marian models
 without downloading upstream weights.
+
+Kaggle setup pins Transformers 5.17.0 and Hub >=1.23,<2. The previous Transformers
+4.57.1 pin downgraded Hub to 0.36 and conflicted with Kaggle's Gradio/Diffusers.
+Restart the session before running setup if those libraries have already been imported.
+Existing completed run artifacts still record their original 4.57.1 environment.
+
+For a local audit of extracted Kaggle outputs, run
+`python scripts/analyze_nmt_runs.py --samples 256 --device cuda:0` (or `--device cpu`).
+It verifies corpus hashes, split separation, saved test metrics, checkpoint/export
+weight agreement and actual layer counts, then evaluates the selected best models
+on deterministic, length-stratified training and validation samples. It writes
+`reports/nmt_run_audit.json` and a comparison plot without training or downloading.
+Only use this audit with your own trusted `.pt` checkpoints. The current interpretation
+is in `reports/nmt_run_analysis.md`. The supplied `kaggle_runs/` stays local and is
+ignored by Git.
 
 To include the scratch results in notebook 2, attach notebook 1's saved artifacts,
 extract the archive if necessary, and set `RESTORE_FROM` to its root before setup.

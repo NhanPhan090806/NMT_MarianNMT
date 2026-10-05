@@ -21,6 +21,37 @@ from .models import build_model, generate
 from .training import TranslationTrainer
 
 
+def effective_model_config(model):
+    """Report the architecture that was built, including pretrained HF settings."""
+    if not hasattr(model, "hf_model"):
+        return asdict(model.config)
+    config = model.hf_model.config
+    return {"stage": model.config.stage, "model_type": config.model_type,
+            "d_model": config.d_model, "encoder_layers": config.encoder_layers,
+            "decoder_layers": config.decoder_layers,
+            "encoder_attention_heads": config.encoder_attention_heads,
+            "decoder_attention_heads": config.decoder_attention_heads,
+            "encoder_ffn_dim": config.encoder_ffn_dim, "decoder_ffn_dim": config.decoder_ffn_dim,
+            "dropout": config.dropout, "vocab_size": config.vocab_size,
+            "tie_word_embeddings": config.tie_word_embeddings}
+
+
+def diagnostic_rows(training_rows, examples=8):
+    """Select meaningful training sentences across moderate sequence lengths."""
+    if examples < 2:
+        raise ValueError("Diagnostic requires at least two training examples.")
+    def word_count(text):
+        return sum(any(char.isalpha() for char in word) for word in text.split())
+    eligible = [r for r in training_rows if word_count(r["source"]) >= 4 and
+                word_count(r["target"]) >= 4 and max(len(r["input_ids"]), len(r["labels"])) <= 48]
+    eligible.sort(key=lambda r: (len(r["input_ids"]) + len(r["labels"]), r["id"]))
+    if len(eligible) < examples:
+        raise ValueError(f"Diagnostic needs {examples} training pairs with at least four alphabetic words "
+                         "on each side and at most 48 tokens; fewer are available.")
+    # Sample evenly through the eligible length distribution, excluding trivial phrases.
+    return [eligible[round(i * (len(eligible) - 1) / (examples - 1))] for i in range(examples)]
+
+
 def model_parameter_counts(model):
     if not hasattr(model, "hf_model"):
         return parameter_counts(model)
@@ -81,16 +112,15 @@ def resource_pilot(bundle, model_config, train_config, device, steps=3):
     return result
 
 
-def learning_diagnostic(bundle, model_config, output_root, device="cpu", steps=500, examples=8,
+def learning_diagnostic(bundle, model_config, output_root, device="cpu", steps=1000, examples=8,
                         check_every=100, target_chrf=90.0):
     """Train-only memorization check; discard these weights before actual training."""
     if model_config.stage == "marian_en_vi":
         raise ValueError("The scratch memorization diagnostic is not a pretrained evaluation.")
     seed_everything(42)
-    # Short examples make this a learning check rather than a long-sequence challenge.
-    rows = sorted(bundle.train.rows, key=lambda r: len(r["input_ids"]) + len(r["labels"]))[:examples]
-    if len(rows) < 2:
-        raise ValueError("Diagnostic requires at least two training examples.")
+    if steps < 1 or check_every < 1:
+        raise ValueError("Diagnostic steps and check interval must be positive.")
+    rows = diagnostic_rows(bundle.train.rows, examples)
     model = build_model(replace(model_config, dropout=0), bundle).to(device)
     collator = TranslationCollator(bundle.tokenizer)
     batch = move_batch(collator(rows), device)
@@ -119,6 +149,7 @@ def learning_diagnostic(bundle, model_config, output_root, device="cpu", steps=5
                 break
     report = {"stage": model_config.stage, "overfit_demonstrated": result["chrf"] >= target_chrf,
               "target_chrf": target_chrf, "examples": len(rows), "history": history, "final": result,
+              "selection": "train-only length-spread sentences; >=4 alphabetic words per side, <=48 tokens",
               "seconds": time.perf_counter() - started, "settings": {"lr": 3e-3, "dropout": 0, "precision": "fp32"},
               "data_fingerprint": bundle.manifest["data_fingerprint"]}
     write_json(Path(output_root) / "results" / "diagnostics" / model_config.stage / "report.json", report)
@@ -132,6 +163,7 @@ def export_model(model, bundle, directory):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     config = {"task": "english_to_vietnamese_translation", "model": asdict(model.config),
+              "effective_model_config": effective_model_config(model),
               "data": asdict(bundle.config), "data_fingerprint": bundle.manifest["data_fingerprint"]}
     if model.config.stage == "marian_en_vi":
         model.hf_model.save_pretrained(directory, safe_serialization=True)
@@ -194,7 +226,8 @@ def run_experiment(bundle, model_config, train_config, output_root, device="cuda
     measurements = benchmark(model, bundle, collator, device, train_config.precision,
                              examples=benchmark_examples) if benchmark_examples else None
     summary = {"stage": model_config.stage, "seed": train_config.seed, **MILESTONES[model_config.stage],
-               "model_config": asdict(model_config), "train_config": asdict(train_config),
+               "model_config": effective_model_config(model), "requested_model_config": asdict(model_config),
+               "train_config": asdict(train_config),
                "data_fingerprint": bundle.manifest["data_fingerprint"], "counts": bundle.manifest["counts"],
                "evaluation_scope": bundle.manifest["evaluation_scope"], "test": metrics, "benchmark": measurements,
                "best_step": selected_step, "best_development_chrf": state["best_chrf"],
