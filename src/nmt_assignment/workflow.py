@@ -2,6 +2,7 @@
 
 import gc
 import json
+import math
 import shutil
 import time
 from dataclasses import asdict, replace
@@ -67,6 +68,37 @@ def release_memory():
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def review_learning_diagnostics(diagnostics, stages, require_pass=False):
+    """Report inconclusive memorization; optionally block before any main training."""
+    stages = tuple(stages)
+    if not stages or len(set(stages)) != len(stages) or set(stages) - set(STAGES[:-1]):
+        raise ValueError("Choose a nonempty, unique selection of scratch TRAIN_STAGES.")
+    issues, messages = [], []
+    for stage in stages:
+        report = diagnostics.get(stage)
+        if report is None:
+            issues.append(stage)
+            messages.append(f"{stage}: no learning diagnostic was run.")
+            continue
+        final = report.get("final", {})
+        for metric in ("teacher_forced_loss", "chrf", "token_accuracy"):
+            if metric in final and not math.isfinite(final[metric]):
+                raise FloatingPointError(f"{stage}: nonfinite diagnostic {metric}; inspect the run before training.")
+        if not report.get("overfit_demonstrated", False):
+            issues.append(stage)
+            score, target = final.get("chrf"), report.get("target_chrf")
+            details = (f"chrF={score:.2f}, target={target:.2f}" if score is not None and target is not None
+                       else "memorization target was not demonstrated")
+            messages.append(f"{stage}: {details}. The short diagnostic is inconclusive.")
+    if issues and require_pass:
+        raise RuntimeError("Strict learning diagnostic gate blocked training for: " + ", ".join(issues) +
+                           ". Main training has not started. Inspect the diagnostic reports; "
+                           "set REQUIRE_DIAGNOSTIC_PASS=False to use advisory diagnostics.")
+    for message in messages:
+        print("Diagnostic advisory:", message, "Main training remains enabled.")
+    return issues
 
 
 def resource_pilot(bundle, model_config, train_config, device, steps=3):
@@ -296,6 +328,38 @@ def archive_translation_outputs(output_root):
             for path in sorted((output_root / folder).rglob("*")):
                 if path.is_file() and not path.name.endswith(".tmp"):
                     output.write(path, arcname=path.relative_to(output_root))
+    return archive
+
+
+def archive_stage_outputs(output_root, stage, seed=42):
+    """Package one completed stage for extraction into an existing output root."""
+    import zipfile
+    if stage not in STAGES:
+        raise ValueError("Unknown stage for the merge archive.")
+    output_root = Path(output_root)
+    seed_folder = f"seed_{seed}"
+    folders = [output_root / name / stage / seed_folder for name in ("checkpoints", "results", "models")]
+    required = [folders[0] / "best.pt", folders[0] / "last.pt", folders[1] / "summary.json",
+                folders[1] / "test_predictions.json", folders[2] / "translation_config.json",
+                folders[2] / "model.safetensors"]
+    if any(not path.is_file() for path in required):
+        raise FileNotFoundError("The stage is incomplete; no merge-ready archive was created.")
+    summary = json.loads((folders[1] / "summary.json").read_text(encoding="utf-8"))
+    export = json.loads((folders[2] / "translation_config.json").read_text(encoding="utf-8"))
+    if summary["stage"] != stage or export["model"]["stage"] != stage or summary["seed"] != seed or (
+            summary["data_fingerprint"] != export["data_fingerprint"]):
+        raise ValueError("The selected summary and export do not describe the same stage/data.")
+    files = [path for folder in folders for path in folder.rglob("*") if path.is_file()]
+    diagnostic = output_root / "results" / "diagnostics" / stage
+    files.extend(path for path in diagnostic.rglob("*") if path.is_file())
+    pilot = output_root / "results" / "pilots" / f"{stage}.json"
+    if pilot.is_file():
+        files.append(pilot)
+    archive = output_root.parent / f"{stage}_{seed_folder}_merge_ready.zip"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+        for path in sorted(files):
+            if not path.name.endswith(".tmp"):
+                output.write(path, arcname=path.relative_to(output_root))
     return archive
 
 

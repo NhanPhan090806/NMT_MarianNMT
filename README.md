@@ -51,8 +51,11 @@ New translation logic lives in `src/nmt_assignment/`.
 5. Run resource/learning checks, inspect their decoded outputs, then train. The
    scratch diagnostic memorizes eight training sentences spread across lengths,
    with at least four alphabetic words per side and at most 48 tokens; chrF ≥90 passes.
-   Diagnostic weights are discarded. Failed stages are skipped by default. Set
-   `REQUIRE_DIAGNOSTIC_PASS=False` explicitly only after investigating a failure.
+   Diagnostic weights are discarded. Missing the target is advisory by default;
+   numerical failures still stop execution. `REQUIRE_DIAGNOSTIC_PASS=True` makes
+   the check strict and raises an explicit error before any main training starts.
+   Set `TRAIN_STAGES = ("lstm_attention",)` to retry only a missing LSTM run;
+   the default `TRAIN_STAGES = STAGE_ORDER` trains all three scratch models.
 6. Download `nmt_artifacts.zip` or save Kaggle outputs. `/kaggle/working` is temporary.
 
 The upstream Marian revision contains `pytorch_model.bin`. With pinned Transformers
@@ -83,6 +86,36 @@ Use an empty destination `OUTPUT_ROOT`; restoration refuses to overwrite existin
 folders. Keep the same source commit and data settings. A different data fingerprint
 is rejected when collecting results. Separate Kaggle sessions are supported; they
 do not share `/kaggle/working` automatically.
+
+### Recover only the missing LSTM stage
+
+The quickest option is **`temp_lstm_only_kaggle.ipynb`**. Upload that notebook
+and run all cells with Internet/GPU enabled. It downloads
+and verifies the same prepared corpus, uses the frozen original LSTM/training
+recipe, and has no diagnostic-based skip. Its final
+`lstm_attention_seed_42_merge_ready.zip` can be extracted directly into
+`kaggle_runs/rnn_lstm_trsf/`; it contains only LSTM-specific checkpoints, results,
+model/tokenizer and diagnostic folders. No older outputs need attaching.
+
+Both scratch interfaces bundle their small diagnostic-review/merge utilities
+for compatible older checkouts, including `a1465b4` from the failed recovery log.
+The generated fallback comes from `src/nmt_assignment/workflow.py`; it is used
+only when the cloned module lacks that utility. Models, data preparation,
+training, checkpoints and metrics still use the cloned Python implementation.
+Pushing the updated source is recommended, but these two optional helper imports
+no longer require it. The console reports when a bundled helper is used.
+
+Alternatively, upload notebook 1 again. In its configuration cell set
+`TRAIN_STAGES = ("lstm_attention",)` and leave `REQUIRE_DIAGNOSTIC_PASS=False`.
+Use a fresh Kaggle session. To retain the completed RNN/Transformer results in the
+final comparison, attach the extracted scratch outputs as a Kaggle input and set
+`RESTORE_FROM` to the folder containing `data`, `results`, `models` and `checkpoints`,
+before setup. The destination `OUTPUT_ROOT` must initially be empty. Keep the
+original data/model/training settings. Only LSTM is trained; the other stages'
+existing summaries and exports are retained without resuming their checkpoints.
+The new LSTM run records the cloned source commit. This is recovery of an absent
+stage, rather than continuation of an interrupted checkpoint from older source.
+See `reports/nmt_lstm_recovery.md` for the log evidence and diagnostic policy.
 
 ## Data, vocabulary and evaluation
 

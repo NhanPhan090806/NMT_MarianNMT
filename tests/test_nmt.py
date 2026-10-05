@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import torch
@@ -15,7 +16,7 @@ from nmt_assignment.models import MarianTranslator, build_model, generate
 from nmt_assignment.training import TranslationTrainer
 from nmt_assignment.workflow import (archive_translation_outputs, collect_results,
                                      diagnostic_rows, effective_model_config,
-                                     learning_diagnostic, run_experiment)
+                                     learning_diagnostic, review_learning_diagnostics, run_experiment)
 from qa_assignment.training import load_checkpoint
 from qa_assignment.utils import seed_everything
 
@@ -239,6 +240,17 @@ def test_diagnostic_excludes_one_word_phrases_and_covers_lengths():
         diagnostic_rows(rows[:8], 8)
 
 
+def test_diagnostic_policy_keeps_numerical_failures_fatal_and_allows_optional_probes():
+    assert review_learning_diagnostics({}, ("lstm_attention",)) == ["lstm_attention"]
+    with pytest.raises(RuntimeError, match="Main training has not started"):
+        review_learning_diagnostics({}, ("lstm_attention",), require_pass=True)
+    with pytest.raises(FloatingPointError, match="nonfinite"):
+        review_learning_diagnostics({"lstm_attention": {"final": {"teacher_forced_loss": float("nan")}}},
+                                    ("lstm_attention",))
+    with pytest.raises(ValueError, match="TRAIN_STAGES"):
+        review_learning_diagnostics({}, ("typo",))
+
+
 def test_evaluation_reports_reaching_cap_without_eos(nmt_bundle, monkeypatch):
     from nmt_assignment import evaluation
     model = build_model(small_model("transformer"), nmt_bundle)
@@ -326,3 +338,83 @@ def test_pretrained_architecture_comes_from_weights_not_wrapper():
     assert model.config.encoder_layers == 1
     assert effective_model_config(model)["encoder_layers"] == 3
     assert effective_model_config(model)["decoder_layers"] == 2
+
+
+@pytest.mark.parametrize("legacy_checkout", [False, True])
+def test_temporary_lstm_notebook_runs_actual_training_after_failed_probe(nmt_bundle, tmp_path, monkeypatch,
+                                                                       legacy_checkout):
+    """Execute its real training/export cells on a small offline translation corpus."""
+    import nbformat
+    import zipfile
+    from nmt_assignment import workflow
+    if legacy_checkout:
+        # Reproduce the missing helper without changing any training implementation.
+        monkeypatch.delattr(workflow, "archive_stage_outputs")
+        monkeypatch.delattr(workflow, "review_learning_diagnostics")
+    root = Path(__file__).resolve().parents[1]
+    notebook = nbformat.read(root / "temp_lstm_only_kaggle.ipynb", as_version=4)
+    source = lambda tag: next(c.source for c in notebook.cells if tag in c.metadata.get("tags", []))
+    namespace = {"OUTPUT_ROOT": tmp_path / "recovery", "REPO_ROOT": root, "DEVICE": "cpu"}
+    exec(source("configuration"), namespace)
+    if not legacy_checkout:
+        assert namespace["archive_stage_outputs"] is workflow.archive_stage_outputs
+    assert namespace["MODEL_CONFIG"].stage == "lstm_attention"
+    # Keep the declared optimizer/layer recipe; the test uses a tiny offline vocabulary/corpus.
+    namespace["bundle"] = nmt_bundle
+    namespace["RUN_RESOURCE_PILOT"] = False
+    def missed_target(bundle, model, output_root, **kwargs):
+        assert model.stage == "lstm_attention" and kwargs["steps"] == 1000
+        report = {"overfit_demonstrated": False, "final": {"chrf": 73.98}}
+        namespace["write_json"](output_root / "results" / "diagnostics" / model.stage / "report.json", report)
+        return report
+    # Probe called positionally with DEVICE, as in the actual notebook.
+    namespace["learning_diagnostic"] = lambda bundle, model, output_root, device, **kwargs: missed_target(
+        bundle, model, output_root, **kwargs)
+    exec(source("diagnostics"), namespace)
+    assert namespace["diagnostic"]["overfit_demonstrated"] is False
+    exec(source("train"), namespace)
+    summary = namespace["summary"]
+    assert summary["stage"] == "lstm_attention" and summary["test"]["examples"] == len(nmt_bundle.test)
+    assert summary["optimizer_steps"] > 0 and summary["train_config"]["epochs"] == 8
+    output = namespace["OUTPUT_ROOT"]
+    assert {p.name for p in (output / "checkpoints").iterdir()} == {"lstm_attention"}
+    assert {p.name for p in (output / "models").iterdir()} == {"lstm_attention"}
+    (output / "results" / "comparison.csv").write_text("LSTM-only table", encoding="utf-8")
+    # The download cell produces the merge-ready archive using the same helper.
+    namespace["display"] = lambda *args: None
+    exec(source("merge_archive"), namespace)
+    archive = namespace["merge_archive"]
+    target = tmp_path / "existing_run"
+    unrelated = target / "models" / "transformer" / "seed_42" / "keep.txt"
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_text("existing Transformer", encoding="utf-8")
+    with zipfile.ZipFile(archive) as packed:
+        names = packed.namelist()
+        assert "models/lstm_attention/seed_42/model.safetensors" in names
+        assert "checkpoints/lstm_attention/seed_42/best.pt" in names
+        assert "results/lstm_attention/seed_42/summary.json" in names
+        assert "results/diagnostics/lstm_attention/report.json" in names
+        assert not any(n.startswith(("data/", "nmt_lstm_only/")) or "rnn/" in n or "transformer/" in n for n in names)
+        assert "results/comparison.csv" not in names
+        packed.extractall(target)
+    assert unrelated.read_text(encoding="utf-8") == "existing Transformer"
+    restored = Translator.from_export(target / "models" / "lstm_attention" / "seed_42", device="cpu")
+    assert isinstance(restored.translate("I see birds in the sky ."), str)
+    export_config = target / "models" / "lstm_attention" / "seed_42" / "translation_config.json"
+    settings = json.loads(export_config.read_text())
+    settings["data_fingerprint"] = "wrong"
+    export_config.write_text(json.dumps(settings), encoding="utf-8")
+    with pytest.raises(ValueError, match="same stage/data"):
+        namespace["archive_stage_outputs"](target, "lstm_attention")
+
+
+def test_temporary_lstm_notebook_refuses_different_prepared_data(nmt_bundle, tmp_path):
+    import nbformat
+    notebook = nbformat.read(Path(__file__).resolve().parents[1] / "temp_lstm_only_kaggle.ipynb", as_version=4)
+    source = lambda tag: next(c.source for c in notebook.cells if tag in c.metadata.get("tags", []))
+    namespace = {"OUTPUT_ROOT": tmp_path}
+    exec(source("configuration"), namespace)
+    namespace["prepare_data"] = lambda *args: nmt_bundle
+    with pytest.raises(ValueError, match="Prepared data differs"):
+        exec(source("data"), namespace)
+    assert not (tmp_path / "results").exists()

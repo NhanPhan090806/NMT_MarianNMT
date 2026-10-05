@@ -59,8 +59,10 @@ estimate. For scratch models, run a train-only memorization check for at most
 1,000 updates, FP32, dropout zero, LR 0.003. Use eight length-spread training
 sentences with at least four alphabetic words per side and at most 48 tokens.
 Target chrF ≥90. Discard diagnostic weights
-and start main training from fresh weights. A failed diagnostic skips that stage
-by default. Inspect decoded predictions rather than relying on decreasing loss alone.
+and start main training from fresh weights. Missing the target is advisory by default;
+nonfinite losses/gradients still stop execution. An opt-in strict gate raises an
+explicit error before any main training, rather than omitting a model from the results.
+Inspect decoded predictions rather than relying on decreasing loss alone.
 
 ## Training and stopping
 

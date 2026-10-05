@@ -1,5 +1,9 @@
 # Analysis of the supplied Kaggle NMT runs
 
+This report describes the initial four-model run reviewed on 2026-10-04. The later
+rerun omitted LSTM through the diagnostic gate; see
+[the missing-LSTM recovery report](nmt_lstm_recovery.md) for the current issue and fix.
+
 The two-layer scratch Transformer is a usable assignment result. Its main problem
 is generalization, so increasing depth is not the first change I recommend. Keep
 these runs as the baseline. If you want one further experiment, give the two-layer
