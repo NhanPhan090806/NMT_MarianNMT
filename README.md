@@ -224,8 +224,8 @@ print(translator.translate("Scientists are studying how the climate is changing.
 ## Development and regeneration
 
 ```powershell
-& 'C:\Users\ADMIN\ai_venv\Scripts\python.exe' -X utf8 scripts/build_notebooks.py
-& 'C:\Users\ADMIN\ai_venv\Scripts\python.exe' -X utf8 -m pytest
+& python -X utf8 scripts/build_notebooks.py
+& python -X utf8 -m pytest
 ```
 
 The generator preserves tagged repository/data/configuration cells and user-added
